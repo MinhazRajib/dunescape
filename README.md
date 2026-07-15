@@ -20,6 +20,21 @@ dune build
 dune exec bin/main.exe       # needs an X display
 ```
 
+### On a headless box (no X display)
+
+`dune exec bin/main.exe` will fail with `Graphic_failure("Cannot open display …")`.
+Use the bundled launcher, which runs the game on a virtual display and serves
+it to your browser:
+
+```bash
+./play.sh                    # needs: sudo apt install xvfb x11vnc novnc websockify
+# then open http://localhost:6080/vnc.html and click Connect
+./play.sh stop               # tear down
+```
+
+In VS Code remote sessions port 6080 is forwarded automatically (see the
+PORTS panel). Keyboard input goes straight through — WASD away.
+
 Dev helpers:
 
 ```bash
