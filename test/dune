@@ -1,0 +1,9 @@
+(executable
+ (name solver)
+ (modules solver)
+ (libraries game))
+
+(rule
+ (alias runtest)
+ (action
+  (run ./solver.exe --check)))
