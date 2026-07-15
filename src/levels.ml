@@ -29,19 +29,25 @@ let level_1 =
     twist = false;
     void_start = -1;
     ascii =
+      (* Tutorial: move 1 slides across water (pass-over collection); move 3
+         glides straight PAST the visible exit (the overshoot lesson, free);
+         the single dune needs the visible 7-tile runway from (10,5); the
+         col-15 shaft force-collects enough water that the one-way door drop
+         onto the exit can never strand anyone.  Two cacti, both lane-end,
+         never forced. *)
       [|
         "####################";
-        "#S...o....#....o...#";
-        "#.........#..##....#";
-        "#..#...#..#...#..#.#";
-        "#..#...#..v...#..#.#";
-        "#..#o..#..#..##..#.#";
-        "#..#...#..#..#E..#.#";
-        "#..#####..#..###.#.#";
-        "#.........#......#.#";
-        "#..X...............#";
-        "#..........~...#...#";
-        "#.o........#...#..X#";
+        "#S...o....##########";
+        "#..#..#...####..####";
+        "#...##....####v.####";
+        "#...##....####.o####";
+        "#.#....#..####..####";
+        "#.#...........E....#";
+        "#.....#.X###.##.##.#";
+        "#.#.............X..#";
+        "#..#.......#.......#";
+        "#...#...o....~o.#.##";
+        "#......#..#........#";
         "####################";
       |];
   }
@@ -51,23 +57,31 @@ let level_2 =
     name = "THE DEEP DESERT";
     intro = "THE DESERT LIES.";
     threshold = 4;
-    patrols = [ ((3, 7), (3, 4)) ];
+    patrols = [ ((8, 12), (11, 12)) ];
     twist = false;
     void_start = -1;
     ascii =
+      (* The viper at (5,10) carves a plus of death; the dune at (5,6) is its
+         western cover — breaking it (a 3-runway invitation from the west)
+         opens the sightline and kills you mid-slide.  The two waters inside
+         the gaze lane are bait, collectable only under Oasis Power (P, a
+         1-move detour at (10,1)).  The scorpion patrols col 12 vertically,
+         timing-gating both east-west corridors.  The false exit at (8,15)
+         sits on the tempting fast lane east; the real oasis needs the
+         north-east climb through the one-way door. *)
       [|
         "####################";
-        "#S.....#....o..#..?#";
-        "#......#..#....#...#";
-        "#..#...s..#..#.....#";
-        "#..#......#..#..####";
-        "#..###v###.......o.#";
-        "#..#.....#..V......#";
-        "#..#.oo..#.....#...#";
-        "#..#.....#..#..#...#";
-        "#..#####.#..#..##v##";
-        "#....P...#..#....E.#";
-        "#........#..o......#";
+        "#S...o...#.......###";
+        "#.........#.....#E.#";
+        "#..##..............#";
+        "#..................#";
+        "#o....~oo.V..#.....#";
+        "#.................^#";
+        "#...##....#........#";
+        "#...........s..?#..#";
+        "##.................#";
+        "#P.................#";
+        "#....o...o.........#";
         "####################";
       |];
   }
