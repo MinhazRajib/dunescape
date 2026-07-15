@@ -1,0 +1,4 @@
+(executable
+ (name main)
+ (modules main render fx sprites font palette)
+ (libraries game graphics unix))
