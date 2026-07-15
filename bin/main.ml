@@ -195,7 +195,7 @@ let death_msg = function
   | Pricked -> "THE CACTUS. OF COURSE."
   | Stung -> "THE SCORPION GOT YOU."
   | Gazed -> "THE VIPER'S GAZE IS LETHAL."
-  | Voided -> "THE APPLICATION GOT YOU. WELCOME ABOARD."
+  | Voided -> "THE VOID TOOK YOU."
   | Sunk -> "THE QUICKSAND ATE YOU. IT LOOKED SO CALM."
 
 (* Replay [path]/[events] cosmetically, then commit [gs']. *)
@@ -365,26 +365,26 @@ let twist_sequence () =
     Unix.sleepf 0.055
   done;
   typewriter ~scale:3 ~cx:(Render.win_w / 2) ~y_top:((Render.win_h / 2) + 40)
-    (Graphics.rgb 255 60 60) "THE OASIS WAS A MIRAGE.";
-  typewriter ~scale:3 ~cx:(Render.win_w / 2) ~y_top:((Render.win_h / 2) + 40)
-    (Graphics.rgb 255 60 60) "THE APPLICATION HAS FOUND YOU.";
+    (Graphics.rgb 255 60 60) "THE DESERT ISN'T DONE WITH YOU...";
   unlocked_finale := true;
   load_level Levels.finale_index
 
-(* Fast page-turn between application stages. *)
+(* Fast descent between void depths. *)
 let page_transition next =
-  Graphics.set_color Render.paper_color;
+  Graphics.set_color Graphics.black;
   Graphics.fill_rect 0 0 Render.win_w Render.win_h;
   Font.draw_centered ~scale:4 ~cx:(Render.win_w / 2)
     ~y_top:((Render.win_h / 2) + 30)
-    (Graphics.rgb 70 70 85) "PAGE TORN.";
+    (Graphics.rgb 255 0 80) "DEEPER.";
   present ();
-  Unix.sleepf 0.7;
+  Unix.sleepf 0.8;
   load_level next
 
 (* ---- turns ---- *)
 
 let do_turn dir =
+  (* acting dismisses the level-name banner for good *)
+  intro_timer := 0;
   let pre = !cur in
   let gs', events, path = Slide.step pre dir in
   if List.length path <= 1 then begin

@@ -373,104 +373,83 @@ let draw_powerup (pal : Palette.t) ~frame ~ox ~oy (r, c) =
     Graphics.fill_rect (x2 - 1) (y2 - 1) 3 3
   done
 
-(* The job application: an advancing wall of cream paper with ruled lines,
-   checkboxes and a torn leading edge.  One is drawn per active front. *)
-let paper_color = Graphics.rgb 248 242 222
-let rule_color = Graphics.rgb 140 150 180
-let margin_color = Graphics.rgb 220 90 90
-let ink_color = Graphics.rgb 70 70 85
+(* The closing void: churning darkness with sparking edges, one wall per
+   active front. *)
 
-let draw_paper_rect x0 y0 x1 y1 =
+let draw_void_rect (pal : Palette.t) x0 y0 x1 y1 =
   let x0 = max 0 x0 and y0 = max 0 y0 in
   let x1 = min win_w x1 and y1 = min board_h y1 in
   if x1 > x0 && y1 > y0 then begin
-    Graphics.set_color paper_color;
+    Graphics.set_color (Palette.color_of pal.void_deep);
     Graphics.fill_rect x0 y0 (x1 - x0) (y1 - y0);
-    (* ruled lines *)
-    Graphics.set_color rule_color;
-    let y = ref (y0 + 6) in
-    while !y < y1 do
-      Graphics.moveto x0 !y;
-      Graphics.lineto (x1 - 1) !y;
-      y := !y + 14
-    done;
-    (* scribbled "ink" and checkboxes *)
-    let y = ref (y0 + 10) in
-    while !y < y1 - 6 do
-      let x = ref (x0 + 10) in
-      while !x < x1 - 24 do
-        if (!x + (7 * !y)) mod 5 = 0 then begin
-          Graphics.set_color ink_color;
-          Graphics.fill_rect !x !y (8 + ((!x * !y) mod 9)) 2
-        end;
-        if (!x + (3 * !y)) mod 97 = 0 then begin
-          Graphics.set_color ink_color;
-          Graphics.draw_rect !x (!y - 2) 7 7;
-          if !y mod 2 = 0 then begin
-            Graphics.moveto !x (!y - 2);
-            Graphics.lineto (!x + 7) (!y + 5);
-            Graphics.moveto !x (!y + 5);
-            Graphics.lineto (!x + 7) (!y - 2)
-          end
-        end;
-        x := !x + 26
-      done;
-      y := !y + 28
+    (* churn *)
+    let area = (x1 - x0) * (y1 - y0) in
+    for _ = 1 to 30 + (area / 4000) do
+      let x = x0 + Random.int (x1 - x0) in
+      let y = y0 + Random.int (y1 - y0) in
+      Graphics.set_color
+        (if Random.int 6 = 0 then Palette.color_of pal.void_edge
+         else
+           Palette.color_of
+             (Palette.scale pal.void_deep (0.5 +. Random.float 1.2)));
+      Graphics.fill_rect x y (2 + Random.int 4) (2 + Random.int 4)
     done
   end
 
-(* Torn edge + red margin line along the leading edge of a front. *)
-let draw_paper_edge ~vertical ~pos ~toward =
-  (* [toward] = +1 if the paper grows toward larger coords *)
+(* Ragged tongues + spark line along the leading edge of a front. *)
+let draw_void_edge (pal : Palette.t) ~vertical ~pos ~toward =
+  (* [toward] = +1 if the void grows toward larger coords *)
   if vertical then begin
     let y = ref 0 in
     while !y < board_h do
       let bh = 6 + Random.int 12 in
-      let reach = Random.int 14 * toward in
-      Graphics.set_color paper_color;
+      let reach = Random.int 16 * toward in
+      Graphics.set_color (Palette.color_of pal.void_deep);
       Graphics.fill_rect (min pos (pos + reach)) !y (abs reach) bh;
+      if Random.int 4 = 0 then begin
+        Graphics.set_color (Palette.color_of pal.void_edge);
+        Graphics.fill_rect (pos + reach - toward) !y 2 (bh / 2)
+      end;
       y := !y + bh
-    done;
-    Graphics.set_color margin_color;
-    Graphics.moveto (pos - (6 * toward)) 0;
-    Graphics.lineto (pos - (6 * toward)) (board_h - 1)
+    done
   end
   else begin
     let x = ref 0 in
     while !x < win_w do
       let bw = 6 + Random.int 12 in
-      let reach = Random.int 14 * toward in
-      Graphics.set_color paper_color;
+      let reach = Random.int 16 * toward in
+      Graphics.set_color (Palette.color_of pal.void_deep);
       Graphics.fill_rect !x (min pos (pos + reach)) bw (abs reach);
+      if Random.int 4 = 0 then begin
+        Graphics.set_color (Palette.color_of pal.void_edge);
+        Graphics.fill_rect !x (pos + reach - toward) (bw / 2) 2
+      end;
       x := !x + bw
-    done;
-    Graphics.set_color margin_color;
-    Graphics.moveto 0 (pos - (6 * toward));
-    Graphics.lineto (win_w - 1) (pos - (6 * toward))
+    done
   end
 
-let draw_application ~voids ~ox:_ =
+let draw_application (pal : Palette.t) ~voids ~ox:_ =
   List.iter
     (fun (side, p) ->
       match side with
       | Left ->
         let x1 = (p + 1) * tile in
-        draw_paper_rect 0 0 x1 board_h;
-        draw_paper_edge ~vertical:true ~pos:x1 ~toward:1
+        draw_void_rect pal 0 0 x1 board_h;
+        draw_void_edge pal ~vertical:true ~pos:x1 ~toward:1
       | Right ->
         let x0 = p * tile in
-        draw_paper_rect x0 0 win_w board_h;
-        draw_paper_edge ~vertical:true ~pos:x0 ~toward:(-1)
+        draw_void_rect pal x0 0 win_w board_h;
+        draw_void_edge pal ~vertical:true ~pos:x0 ~toward:(-1)
       | Up ->
         (* rows 0..p = the TOP strip of the screen *)
         let y0 = (rows - 1 - p) * tile in
-        draw_paper_rect 0 y0 win_w board_h;
-        draw_paper_edge ~vertical:false ~pos:y0 ~toward:(-1)
+        draw_void_rect pal 0 y0 win_w board_h;
+        draw_void_edge pal ~vertical:false ~pos:y0 ~toward:(-1)
       | Down ->
         (* rows p..12 = the BOTTOM strip of the screen *)
         let y1 = (rows - p) * tile in
-        draw_paper_rect 0 0 win_w y1;
-        draw_paper_edge ~vertical:false ~pos:y1 ~toward:1)
+        draw_void_rect pal 0 0 win_w y1;
+        draw_void_edge pal ~vertical:false ~pos:y1 ~toward:1)
     voids
 
 (* Fading hoofprints along recently traversed cells. *)
@@ -513,7 +492,7 @@ let draw_board (pal : Palette.t) ~grid ~enemies ~powerups ~voids ~trail
    draw_camel pal ~px:(px +. float_of_int ox) ~py:(py +. float_of_int oy)
      ~facing);
   Fx.draw ();
-  draw_application ~voids ~ox
+  draw_application pal ~voids ~ox
 
 (* ---- HUD ---- *)
 
@@ -667,7 +646,7 @@ let draw_level_select (pal : Palette.t) ~frame ~sel ~unlocked_void ~cleared =
       if i < n then begin
       let spec =
         if i = Levels.finale_index then
-          { spec with Levels.name = "THE APPLICATION" }
+          { spec with Levels.name = "THE CLOSING VOID" }
         else spec
       in
       let x = x0 + (i * (card_w + gap)) in
@@ -725,7 +704,7 @@ let draw_victory (pal : Palette.t) ~frame ~total_moves ~deaths =
     (Palette.color_of pal.gold) "THE DESERT.";
   Font.draw_centered ~scale:2 ~cx:(win_w / 2) ~y_top:330
     (Palette.color_of pal.ui)
-    "AND DODGED THE PAPERWORK.";
+    "AND OUTRAN THE VOID ITSELF.";
   Font.draw_centered ~scale:2 ~cx:(win_w / 2) ~y_top:290
     (Palette.color_of pal.ui)
     (Printf.sprintf "MOVES: %d    DEATHS: %d" total_moves deaths);

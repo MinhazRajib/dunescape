@@ -114,16 +114,17 @@ let level_3 =
       |];
   }
 
-(* ---- THE APPLICATION ----
-   The oasis was a mirage.  What advances across the desert is a job
-   application, one ruled line at a time.  No water out here — just escape.
-   Four pages; the gate on each leads deeper.  On the last page you must
-   reach the very center of the map. *)
+(* ---- THE CLOSING VOID ----
+   The oasis was a mirage.  The void advances across the desert, and each
+   gate leads deeper: first it comes from the left, then both sides, then
+   below joins in, and at the last depth it closes from everywhere — the
+   only safe cell in the desert is its exact center.  No water down here;
+   just escape. *)
 
 let page_1 =
   {
-    name = "PAGE 1: PERSONAL INFORMATION";
-    intro = "IT'S COMING FROM THE LEFT. RUN.";
+    name = "THE CLOSING VOID";
+    intro = "IT COMES FROM THE LEFT. RUN.";
     threshold = 0;
     patrols = [];
     twist = false;
@@ -151,16 +152,17 @@ let page_1 =
 
 let page_2 =
   {
-    name = "PAGE 2: EMPLOYMENT HISTORY";
-    intro = "NOW IT'S COMING FROM BOTH SIDES.";
+    name = "THE VOID CLOSES IN";
+    intro = "NOW FROM BOTH SIDES.";
     threshold = 0;
     patrols = [];
     twist = false;
     voids = [ Types.Left; Types.Right ];
     next = Some 5;
     ascii =
-      (* Symmetric squeeze: climb the center spine while both margins close.
-         The teleport pair swaps you between the doomed flanks. *)
+      (* Symmetric squeeze: climb the center spine while both flanks close.
+         The side excursions now reach deeper into the doomed margins, and
+         the teleport pair swaps you between them. *)
       [|
         "####################";
         "#.......#E.........#";
@@ -171,7 +173,7 @@ let page_2 =
         "#..1......#......1.#";
         "#.....#......#.....#";
         "#........#.........#";
-        "#....#.........#...#";
+        "#...#...........#..#";
         "#..................#";
         "#q.......S........q#";
         "####################";
@@ -180,45 +182,46 @@ let page_2 =
 
 let page_3 =
   {
-    name = "PAGE 3: REFERENCES";
-    intro = "IT RISES FROM BELOW.";
+    name = "THE VOID RISES";
+    intro = "LEFT. RIGHT. AND BELOW.";
     threshold = 0;
     patrols = [];
     twist = false;
-    voids = [ Types.Down ];
+    voids = [ Types.Left; Types.Right; Types.Down ];
     next = Some 6;
     ascii =
-      (* Climb through offset slots in three shelf walls while the paper
-         rises.  The long panicked skid right ends in quicksand. *)
+      (* Three fronts now.  Climb the offset slots in the shelf walls from
+         the bottom-center; both side excursions dip toward the closing
+         flanks, and the right-hand mirror route is a half-lie. *)
       [|
         "####################";
-        "#...............#E.#";
+        "#.........E........#";
         "#..................#";
-        "####.####.####.###.#";
+        "##########.#########";
         "#..................#";
+        "#.............q....#";
+        "#########..#########";
+        "#..........#.......#";
         "#..................#";
-        "#.###.####.####.####";
-        "#...............#..#";
-        "#..................#";
-        "###.####.####.####.#";
-        "#...#.............q#";
-        "#.S................#";
+        "#####.########.#####";
+        "#...#..........#...#";
+        "#........S.........#";
         "####################";
       |];
   }
 
 let page_4 =
   {
-    name = "PAGE 4: SIGN HERE.";
-    intro = "REACH THE CENTER. DO NOT SIGN.";
+    name = "THE VOID CONSUMES ALL";
+    intro = "ONLY THE CENTER SURVIVES.";
     threshold = 0;
     patrols = [];
     twist = false;
-    voids = [ Types.Up ];
+    voids = [ Types.Left; Types.Right; Types.Down; Types.Up ];
     next = None;
     ascii =
-      (* The final line descends from the top; the only safe cell in the
-         desert is its exact center. *)
+      (* Everything closes at once.  The quicksand directly above the spawn
+         punishes the obvious first move; the real line swings west. *)
       [|
         "####################";
         "#..................#";
@@ -230,8 +233,8 @@ let page_4 =
         "#.....#............#";
         "#..........#..q....#";
         "#........#.........#";
-        "#....#.............#";
-        "#........S.........#";
+        "#....#...q.........#";
+        "#....#...S.........#";
         "####################";
       |];
   }
