@@ -33,9 +33,15 @@ Window is 960x720. WASD to slide, Z undo, R restart, Esc menu, Enter confirm.
 | Level | Moves | Solution (WASD ↔ RDLU: R=D, L=A, U=W, D=S) |
 |-------|-------|---------------------------------------------|
 | 1 The Oasis Trail | 13 | `RDRDLDLULRULD` |
-| 2 The Deep Desert | 9  | `RLDRDLRUL` |
-| 3 The Reckoning   | 15 | `RDLRLURDLRURDLU` |
-| ∅ The Closing Void| 13 | `DRURDRURDRULD` |
+| 2 The Deep Desert | 8  | `DURDLRUL` |
+| 3 The Reckoning   | 16 | `DURDRLURDLRURDLU` |
+| ∅ Page 1          | 18 | `RDRURLRLRRURDLDRUR` |
+| ∅ Page 2          | 6  | `URULUL` |
+| ∅ Page 3          | 8  | `URULURUL` |
+| ∅ Page 4          | 6  | `ULURUL` |
+
+NOTE: solutions assume frozen hazards — scorpions now roam in REAL TIME and
+the application never stops, so timing (and nerve) is on you.
 
 Re-derive anytime: `dune exec test/solver.exe -- <n> --trace`.
 
