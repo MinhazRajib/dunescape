@@ -454,6 +454,7 @@ let handle_key ch =
       load_level ~quiet:true !level_idx;
       msg := "FRESH EYES.";
       msg_danger := false
+    | 't' -> twist_sequence () (* TEMP: debug hook, removed before ship *)
     | '\027' -> screen := Level_select
     | _ -> ())
   | Victory -> (

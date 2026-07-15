@@ -51,7 +51,7 @@ let level_2 =
     name = "THE DEEP DESERT";
     intro = "THE DESERT LIES.";
     threshold = 4;
-    patrols = [ ((3, 8), (9, 8)) ];
+    patrols = [ ((3, 7), (3, 4)) ];
     twist = false;
     void_start = -1;
     ascii =
@@ -110,19 +110,23 @@ let level_void =
     twist = false;
     void_start = 0;
     ascii =
+      (* A comb maze: wall columns with alternating top/bottom gaps force a
+         committed D/R/U zigzag eastward while the void eats the columns
+         behind you.  Two dunes give mid-run breaks (runway 4 upward); the
+         exit is landed by the L-then-D finish at the top-right. *)
       [|
         "####################";
-        "#..S....~......#...#";
-        "#......##..#.......#";
-        "#..#...#...#...#...#";
-        "#..#.......#...#...#";
-        "#....#..#..~...#...#";
-        "#..#.#..#..#...#.E.#";
-        "#..#.#..#..#...#...#";
-        "#..#....#..#...#...#";
-        "#..#....#..#...#...#";
-        "#..##..##..#...#...#";
-        "#..........#.......#";
+        "#.S.#.....#..o..#..#";
+        "#...#..#..#..#..#..#";
+        "#...#..#..#..#..#..#";
+        "#...#..#..#..#..#..#";
+        "#...#..#..#..#..#..#";
+        "#...#.~#..#..#..#E~#";
+        "#...#..#..#..#..##.#";
+        "#...#..#..#..#..#..#";
+        "#...#..#..#..#..#..#";
+        "#...#..#..#..#..#..#";
+        "#....o.#.....#.....#";
         "####################";
       |];
   }
