@@ -92,6 +92,40 @@ let rock =
     "............";
   |]
 
+(* An ice-cream sundae: cherry, two scoops, glass coupe. *)
+let sundae =
+  [|
+    ".....RR.....";
+    ".....R......";
+    "...PPPP.....";
+    "..PPPPPP....";
+    "..WIIIIW....";
+    ".IIIIIIII...";
+    ".CCCCCCCC...";
+    "..CCCCCC....";
+    "...CCCC.....";
+    "....CC......";
+    "...CCCC.....";
+    "............";
+  |]
+
+(* The consolation prize. *)
+let thumbs_up =
+  [|
+    "....TT......";
+    "...TTT......";
+    "...TT.......";
+    "...TTTTTTT..";
+    "..TTTTTTTTD.";
+    "..TTTTTTTTD.";
+    "..TTTTTTTTD.";
+    "..TTTTTTTD..";
+    "...TTTTTTD..";
+    "....DDDDD...";
+    "............";
+    "............";
+  |]
+
 (* Draw [grid] with its top-left at (x, y_top) in Graphics coords (y up),
    [scale] px per sprite pixel.  [color_of] maps a grid char to a color;
    [None] = transparent.  [flip] mirrors horizontally. *)

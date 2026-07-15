@@ -393,6 +393,80 @@ let twist_sequence () =
   unlocked_finale := true;
   load_level Levels.finale_index
 
+(* Is it, in the real world, dessert Thursday? *)
+let is_dessert_thursday () = (Unix.localtime (Unix.time ())).Unix.tm_wday = 4
+
+let dessert_day = ref false
+
+(* Beating the game earns you dessert.  Well.  Usually. *)
+let victory_sequence () =
+  let pal = Palette.dusk in
+  dessert_day := is_dessert_thursday ();
+  let cx = Render.win_w / 2 in
+  let draw_backdrop () =
+    Fx.draw_gradient ~x:0 ~y:0 ~w:Render.win_w ~h:Render.win_h pal.sky_top
+      pal.sky_bot;
+    Font.draw_shadowed ~scale:5 ~cx ~y_top:660
+      ~shadow:(Palette.color_of pal.void_deep)
+      (Palette.color_of pal.gold) "YOU OUTWITTED THE DESERT."
+  in
+  (* phase 1: the dessert descends *)
+  for f = 0 to 74 do
+    incr frame;
+    Fx.step ();
+    draw_backdrop ();
+    Font.draw_centered ~scale:3 ~cx ~y_top:540 (Palette.color_of pal.ui)
+      "YOUR REWARD:";
+    let t = min 1. (float_of_int f /. 24.) in
+    let y_top = 720 - int_of_float (t *. 240.) in
+    Fx.draw_glow ~cx ~cy:(y_top - 42) ~radius:70 ~steps:5 pal.gold
+      pal.sky_bot;
+    Render.draw_sundae pal ~x:(cx - 42) ~y_top ~scale:7;
+    if f > 24 then begin
+      Font.draw_centered ~scale:4 ~cx ~y_top:340 (Palette.color_of pal.gold)
+        "DESSERT!";
+      if f mod 6 = 0 then
+        Fx.spawn_rise ~n:3 ~x:cx ~y:(y_top - 100)
+          (Palette.color_of pal.gold)
+    end;
+    present ();
+    Unix.sleepf 0.03
+  done;
+  if not !dessert_day then begin
+    (* phase 2: SIKE *)
+    for _ = 0 to 1 do
+      incr frame;
+      Graphics.set_color (Palette.color_of pal.danger);
+      Graphics.fill_rect 0 0 Render.win_w Render.win_h;
+      present ();
+      Unix.sleepf 0.06
+    done;
+    for f = 0 to 55 do
+      incr frame;
+      Fx.step ();
+      draw_backdrop ();
+      Font.draw_shadowed ~scale:8 ~cx ~y_top:500
+        ~shadow:(Palette.color_of pal.void_deep)
+        (Palette.color_of pal.danger) "SIKE.";
+      (* the dessert plummets off screen *)
+      let fall = f * f / 3 in
+      let y_top = 480 - fall in
+      if y_top > -100 then begin
+        Render.draw_sundae pal ~x:(cx + 180) ~y_top ~scale:6;
+        if f mod 4 = 0 then
+          Fx.spawn ~n:3 ~speed:1.5 ~size:2.5 ~x:(cx + 216) ~y:(y_top - 40)
+            (Palette.color_of pal.ui)
+      end;
+      if f > 20 then
+        Font.draw_centered ~scale:3 ~cx ~y_top:300
+          (Palette.color_of pal.ui)
+          "IT'S NOT DESSERT THURSDAY.";
+      present ();
+      Unix.sleepf 0.035
+    done
+  end;
+  screen := Victory
+
 (* Fast descent between void depths. *)
 let page_transition next =
   Graphics.set_color Graphics.black;
@@ -471,7 +545,7 @@ let do_turn dir =
             present ();
             Unix.sleepf 0.03
           done;
-          screen := Victory
+          victory_sequence ()
         end
         else begin
           level_complete_overlay ();
@@ -618,7 +692,8 @@ let () =
         | In_level -> draw_idle ()
         | Victory ->
           Render.draw_victory Palette.dusk ~frame:!frame
-            ~total_moves:!total_moves ~deaths:!deaths);
+            ~total_moves:!total_moves ~deaths:!deaths
+            ~dessert_day:!dessert_day);
        present ();
        while Graphics.key_pressed () do
          handle_key (Graphics.read_key ())

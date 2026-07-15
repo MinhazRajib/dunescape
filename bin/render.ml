@@ -60,6 +60,26 @@ let rock_colors _pal = function
   | 'D' -> Some (gray 104)
   | _ -> None
 
+let sundae_colors (pal : Palette.t) = function
+  | 'R' -> Some (Palette.color_of pal.danger)
+  | 'P' -> Some (Palette.color_of pal.flower)
+  | 'I' -> Some (Palette.color_of pal.ui)
+  | 'W' -> Some Graphics.white
+  | 'C' -> Some (Palette.color_of pal.oneway_light)
+  | _ -> None
+
+let thumbs_colors (pal : Palette.t) = function
+  | 'T' -> Some (Palette.color_of pal.camel)
+  | 'D' -> Some (Palette.color_of pal.camel_dark)
+  | _ -> None
+
+let draw_sundae (pal : Palette.t) ~x ~y_top ~scale =
+  Sprites.draw ~color_of:(sundae_colors pal) ~x ~y_top ~scale Sprites.sundae
+
+let draw_thumbs (pal : Palette.t) ~x ~y_top ~scale =
+  Sprites.draw ~color_of:(thumbs_colors pal) ~x ~y_top ~scale
+    Sprites.thumbs_up
+
 (* ---- tiles ---- *)
 
 let draw_sand (pal : Palette.t) x y r c =
@@ -630,7 +650,7 @@ let draw_title (pal : Palette.t) ~frame =
     (Palette.color_of pal.ui) "DUNESCAPE";
   Font.draw_centered ~scale:3 ~cx:(win_w / 2) ~y_top:410
     (Palette.color_of pal.gold)
-    "A DESERT MAZE";
+    "A DESERT MAZE...";
   if frame / 14 mod 2 = 0 then
     Font.draw_centered ~scale:3 ~cx:(win_w / 2) ~y_top:80
       (Palette.color_of pal.ui) "PRESS ENTER";
@@ -713,21 +733,28 @@ let draw_level_select (pal : Palette.t) ~frame ~sel ~unlocked_void ~cleared =
     "A/D CHOOSE   ENTER START   ESC TITLE";
   Fx.draw ()
 
-let draw_victory (pal : Palette.t) ~frame ~total_moves ~deaths =
+let draw_victory (pal : Palette.t) ~frame ~total_moves ~deaths ~dessert_day =
   Fx.draw_gradient ~x:0 ~y:0 ~w:win_w ~h:win_h pal.sky_top pal.sky_bot;
-  Fx.draw_glow ~cx:(win_w / 2) ~cy:420 ~radius:160 ~steps:6 pal.gold
+  Fx.draw_glow ~cx:(win_w / 2) ~cy:420 ~radius:150 ~steps:6 pal.gold
     pal.sky_bot;
-  Sprites.draw ~color_of:(camel_colors pal) ~x:((win_w / 2) - 42)
-    ~y_top:470 ~scale:7 Sprites.camel;
+  if dessert_day then begin
+    draw_sundae pal ~x:((win_w / 2) - 42) ~y_top:490 ~scale:7;
+    Font.draw_centered ~scale:2 ~cx:(win_w / 2) ~y_top:370
+      (Palette.color_of pal.gold)
+      "IT'S DESSERT THURSDAY. ENJOY."
+  end
+  else begin
+    draw_thumbs pal ~x:((win_w / 2) - 42) ~y_top:490 ~scale:7;
+    Font.draw_centered ~scale:2 ~cx:(win_w / 2) ~y_top:370
+      (Palette.color_of pal.ui)
+      "HERE'S A THUMBS UP."
+  end;
   Font.draw_shadowed ~scale:6 ~cx:(win_w / 2) ~y_top:660
     ~shadow:(Palette.color_of pal.void_deep)
     (Palette.color_of pal.gold) "YOU OUTWITTED";
   Font.draw_shadowed ~scale:6 ~cx:(win_w / 2) ~y_top:600
     ~shadow:(Palette.color_of pal.void_deep)
     (Palette.color_of pal.gold) "THE DESERT.";
-  Font.draw_centered ~scale:2 ~cx:(win_w / 2) ~y_top:330
-    (Palette.color_of pal.ui)
-    "AND OUTRAN THE VOID ITSELF.";
   Font.draw_centered ~scale:2 ~cx:(win_w / 2) ~y_top:290
     (Palette.color_of pal.ui)
     (Printf.sprintf "MOVES: %d    DEATHS: %d" total_moves deaths);
