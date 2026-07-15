@@ -160,6 +160,10 @@ let apply_event_fx rgrid renemies rpowerups e =
       msg := "THAT DUNE WILL NEVER BREAK.";
       msg_danger := false;
       Fx.add_shake 3.
+    end
+    else begin
+      msg := "PACKED SAND. IT NEEDS A RUNNING START.";
+      msg_danger := false
     end;
     (renemies, rpowerups)
   | _ -> (renemies, rpowerups)
