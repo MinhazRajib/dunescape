@@ -22,6 +22,7 @@ type spec = {
   patrols : ((int * int) * (int * int)) list;
   twist : bool;
   voids : Types.dir list;
+  void_tick_s : float; (* seconds per consumed line; rendering glides between *)
   next : int option;
 }
 
@@ -33,6 +34,7 @@ let level_1 =
     patrols = [];
     twist = false;
     voids = [];
+    void_tick_s = 1.3;
     next = Some 1;
     ascii =
       [|
@@ -60,6 +62,7 @@ let level_2 =
     patrols = [ ((8, 12), (11, 12)) ];
     twist = false;
     voids = [];
+    void_tick_s = 1.3;
     next = Some 2;
     ascii =
       (* The viper carves a plus of death; the dune at (5,6) is its western
@@ -92,6 +95,7 @@ let level_3 =
     patrols = [ ((9, 8), (11, 8)); ((6, 16), (10, 16)) ];
     twist = true;
     voids = [];
+    void_tick_s = 1.3;
     next = None;
     ascii =
       (* Two scorpions now: the col-8 gate and an east watchman over the
@@ -129,6 +133,7 @@ let page_1 =
     patrols = [];
     twist = false;
     voids = [ Types.Left ];
+    void_tick_s = 1.4;
     next = Some 4;
     ascii =
       (* A comb of lanes with one chip-mandatory dune on the middle row:
@@ -158,6 +163,7 @@ let page_2 =
     patrols = [];
     twist = false;
     voids = [ Types.Left; Types.Right ];
+    void_tick_s = 1.2;
     next = Some 5;
     ascii =
       (* Symmetric squeeze: climb the center spine while both flanks close.
@@ -188,6 +194,7 @@ let page_3 =
     patrols = [];
     twist = false;
     voids = [ Types.Left; Types.Right; Types.Down ];
+    void_tick_s = 1.2;
     next = Some 6;
     ascii =
       (* Three fronts now.  Climb the offset slots in the shelf walls from
@@ -218,6 +225,7 @@ let page_4 =
     patrols = [];
     twist = false;
     voids = [ Types.Left; Types.Right; Types.Down; Types.Up ];
+    void_tick_s = 1.3;
     next = None;
     ascii =
       (* Everything closes at once.  The quicksand directly above the spawn

@@ -314,8 +314,18 @@ let draw_camel (pal : Palette.t) ~px ~py ~facing =
     ~flip:(facing = Left)
     ~color_of:(camel_colors pal) ~x ~y_top:(y + tile) ~scale:4 Sprites.camel
 
-let draw_enemy (pal : Palette.t) ~frame ~ox ~oy e =
-  let x, y = px_of_cell ~ox ~oy e.cell in
+(* Enemies glide between cells: [prev] is where this enemy stood before its
+   last step and [t] the glide progress in [0,1]. *)
+let draw_enemy (pal : Palette.t) ~frame ~ox ~oy ?prev ?(t = 1.) e =
+  let x, y =
+    let x1, y1 = px_of_cell ~ox ~oy e.cell in
+    match prev with
+    | Some p when p <> e.cell && t < 1. ->
+      let x0, y0 = px_of_cell ~ox ~oy p in
+      ( x0 + int_of_float (float_of_int (x1 - x0) *. t),
+        y0 + int_of_float (float_of_int (y1 - y0) *. t) )
+    | _ -> (x1, y1)
+  in
   match e.kind with
   | Scorpion ->
     let alert = e.st = Chase in
@@ -428,26 +438,30 @@ let draw_void_edge (pal : Palette.t) ~vertical ~pos ~toward =
     done
   end
 
-let draw_application (pal : Palette.t) ~voids ~ox:_ =
+(* [frac] in [0,1) is the progress toward the NEXT consumed line: the wall
+   glides continuously and a cell becomes lethal exactly when the edge
+   finishes covering it. *)
+let draw_application (pal : Palette.t) ~voids ~frac ~ox:_ =
+  let fpx = int_of_float (frac *. float_of_int tile) in
   List.iter
     (fun (side, p) ->
       match side with
       | Left ->
-        let x1 = (p + 1) * tile in
+        let x1 = ((p + 1) * tile) + fpx in
         draw_void_rect pal 0 0 x1 board_h;
         draw_void_edge pal ~vertical:true ~pos:x1 ~toward:1
       | Right ->
-        let x0 = p * tile in
+        let x0 = (p * tile) - fpx in
         draw_void_rect pal x0 0 win_w board_h;
         draw_void_edge pal ~vertical:true ~pos:x0 ~toward:(-1)
       | Up ->
         (* rows 0..p = the TOP strip of the screen *)
-        let y0 = (rows - 1 - p) * tile in
+        let y0 = ((rows - 1 - p) * tile) - fpx in
         draw_void_rect pal 0 y0 win_w board_h;
         draw_void_edge pal ~vertical:false ~pos:y0 ~toward:(-1)
       | Down ->
         (* rows p..12 = the BOTTOM strip of the screen *)
-        let y1 = (rows - p) * tile in
+        let y1 = ((rows - p) * tile) + fpx in
         draw_void_rect pal 0 0 win_w y1;
         draw_void_edge pal ~vertical:false ~pos:y1 ~toward:1)
     voids
@@ -471,11 +485,12 @@ let draw_trail (pal : Palette.t) ~frame ~ox ~oy trail =
 
 (* ---- the full board ---- *)
 
-let draw_board (pal : Palette.t) ~grid ~enemies ~powerups ~voids ~trail
-    ~water ~threshold ~frame ~camel_px ~facing ~is_protected ~ox ~oy =
+let draw_board (pal : Palette.t) ~grid ~enemies ~powerups ~voids ~void_frac
+    ~trail ~enemy_prev ~enemy_t ~water ~threshold ~frame ~camel_px ~facing
+    ~is_protected ~ox ~oy =
   let locked_exit = water < threshold in
   let gate = voids <> [] in
-  (* the "center goal" styling is used on the last page of the application *)
+  (* the "center goal" styling is used on the deepest layer of the void *)
   let center_goal = gate && List.mem Up (List.map fst voids) in
   for r = 0 to rows - 1 do
     for c = 0 to cols - 1 do
@@ -487,12 +502,20 @@ let draw_board (pal : Palette.t) ~grid ~enemies ~powerups ~voids ~trail
   draw_los pal ~frame ~is_protected ~ox ~oy
     (Slide.viper_los_cells grid enemies);
   List.iter (draw_powerup pal ~frame ~ox ~oy) powerups;
-  List.iter (draw_enemy pal ~frame ~ox ~oy) enemies;
+  (* glide enemies only when the previous-cell snapshot still lines up *)
+  let prevs =
+    if List.length enemy_prev = List.length enemies then
+      List.map (fun p -> Some p) enemy_prev
+    else List.map (fun _ -> None) enemies
+  in
+  List.iter2
+    (fun e prev -> draw_enemy pal ~frame ~ox ~oy ?prev ~t:enemy_t e)
+    enemies prevs;
   (let px, py = camel_px in
    draw_camel pal ~px:(px +. float_of_int ox) ~py:(py +. float_of_int oy)
      ~facing);
   Fx.draw ();
-  draw_application pal ~voids ~ox
+  draw_application pal ~voids ~frac:void_frac ~ox
 
 (* ---- HUD ---- *)
 

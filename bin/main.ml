@@ -28,6 +28,10 @@ let trail : ((int * int) * int) list ref = ref []
 let last_scorpion_tick = ref 0.
 let last_app_tick = ref 0.
 
+(* previous enemy cells + when they stepped, for the glide animation *)
+let enemy_prev : (int * int) list ref = ref []
+let enemy_moved_at = ref 0.
+
 let present () = Graphics.synchronize ()
 
 let is_dusk i = Levels.all.(i).voids <> [] || i > Levels.finale_index
@@ -41,6 +45,8 @@ let load_level ?(quiet = false) i =
   palette := (if is_dusk i then Palette.dusk else Palette.day);
   last_scorpion_tick := Unix.gettimeofday ();
   last_app_tick := Unix.gettimeofday ();
+  enemy_prev := [];
+  enemy_moved_at := 0.;
   if not quiet then begin
     msg := Levels.all.(i).intro;
     msg_danger := false;
@@ -53,9 +59,22 @@ let draw_level_frame ~grid ~enemies ~powerups ~voids ~water ~power_left
     ~moves ~camel_px ~facing () =
   let pal = !palette in
   let ox, oy = Fx.shake_offset () in
+  let now = Unix.gettimeofday () in
+  (* continuous void edge: progress toward the next consumed line *)
+  let void_frac =
+    if voids = [] || !intro_timer > 0 then 0.
+    else
+      let tick = Levels.all.(!level_idx).void_tick_s in
+      min 0.999 (max 0. ((now -. !last_app_tick) /. tick))
+  in
+  (* enemy glide progress since their last step *)
+  let enemy_t =
+    min 1. (max 0. ((now -. !enemy_moved_at) /. enemy_glide_s))
+  in
   Fx.draw_gradient ~x:0 ~y:0 ~w:Render.win_w ~h:Render.board_h pal.sky_bot
     pal.sky_top;
-  Render.draw_board pal ~grid ~enemies ~powerups ~voids ~trail:!trail ~water
+  Render.draw_board pal ~grid ~enemies ~powerups ~voids ~void_frac
+    ~trail:!trail ~enemy_prev:!enemy_prev ~enemy_t ~water
     ~threshold:!cur.threshold ~frame:!frame ~camel_px ~facing
     ~is_protected:(power_left > 0) ~ox ~oy;
   Render.draw_hud pal ~name:Levels.all.(!level_idx).name ~water
@@ -73,6 +92,11 @@ let draw_idle () =
     ~camel_px:(camel_px_of_cell gs.camel) ~facing:gs.facing ();
   if !intro_timer > 0 then begin
     decr intro_timer;
+    if !intro_timer = 0 then begin
+      (* the world's clocks start when the banner lifts *)
+      last_app_tick := Unix.gettimeofday ();
+      last_scorpion_tick := Unix.gettimeofday ()
+    end;
     Render.draw_panel ~cx:(Render.win_w / 2) ~cy:(Render.board_h / 2) ~w:680
       ~h:120;
     Font.draw_centered ~scale:3 ~cx:(Render.win_w / 2)
@@ -384,7 +408,11 @@ let page_transition next =
 
 let do_turn dir =
   (* acting dismisses the level-name banner for good *)
-  intro_timer := 0;
+  if !intro_timer > 0 then begin
+    intro_timer := 0;
+    last_app_tick := Unix.gettimeofday ();
+    last_scorpion_tick := Unix.gettimeofday ()
+  end;
   let pre = !cur in
   let gs', events, path = Slide.step pre dir in
   if List.length path <= 1 then begin
@@ -473,6 +501,8 @@ let world_tick () =
     in
     if now -. !last_scorpion_tick >= pace then begin
       last_scorpion_tick := now;
+      enemy_prev := List.map (fun e -> e.cell) !cur.enemies;
+      enemy_moved_at := now;
       let gs', events = Slide.tick_scorpions !cur in
       cur := gs';
       List.iter
@@ -486,9 +516,9 @@ let world_tick () =
           | _ -> ())
         events
     end;
-    (* the application turns its lines *)
+    (* the void swallows its next line *)
     if !cur.status = Alive && !cur.voids <> []
-       && now -. !last_app_tick >= application_tick_s
+       && now -. !last_app_tick >= Levels.all.(!level_idx).void_tick_s
     then begin
       last_app_tick := now;
       let gs', events = Slide.tick_void !cur in
