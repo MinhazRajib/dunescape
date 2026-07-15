@@ -77,23 +77,30 @@ let level_3 =
     name = "THE RECKONING";
     intro = "TRUST NOTHING.";
     threshold = 4;
-    patrols = [ ((6, 4), (6, 8)) ];
+    patrols = [ ((9, 8), (11, 8)) ];
     twist = true;
     void_start = -1;
     ascii =
+      (* West: water runs guarded by a scorpion gauntlet on row 11 and a
+         viper hub at (6,10) whose sightlines are capped by walls and by the
+         cover dune at (6,7) — breaking that dune kills you on the same
+         slide.  The col-13 wall has two breakable dunes: the north one
+         (row 2) rockets you into a cactus (break the WRONG wall), the south
+         one (row 9) is the way in.  East: two crumble tiles become the pits
+         that let you land on the oasis — which is not what it seems. *)
       [|
         "####################";
-        "#S...o...%.....o...#";
-        "#..#.....#..#......#";
-        "#..#..#..~..#..:...#";
-        "#..#..#.....#..#...#";
-        "#..o..#..#..#..#.o.#";
-        "#.....#..#..V..#...#";
-        "#..#..#..#.....#...#";
-        "#..#..~..#..#..~...#";
-        "#..#..#..#..#..#...#";
-        "#..:..#..O..#..#.E.#";
-        "#.....#.....#......#";
+        "#So#....#....~..X..#";
+        "#............#.....#";
+        "#.........#..#.#...#";
+        "#............#...:.#";
+        "#o...........#...E.#";
+        "#......~..V#.#.....#";
+        "#............#.....#";
+        "##....%...#..#.....#";
+        "#.....o.s....~.....#";
+        "#............#.....#";
+        "#....o....o.%#..:..#";
         "####################";
       |];
   }

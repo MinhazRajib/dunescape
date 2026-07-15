@@ -281,8 +281,10 @@ let level_complete_overlay () =
       Font.draw_centered ~scale:2 ~cx:(Render.win_w / 2)
         ~y_top:((Render.board_h / 2) + 4)
         (Palette.color_of !palette.ui)
-        (Printf.sprintf "MOVES %d   WATER %d/%d" !cur.moves !cur.water
-           !cur.threshold);
+        (if !cur.threshold > 0 then
+           Printf.sprintf "MOVES %d   WATER %d/%d" !cur.moves !cur.water
+             !cur.threshold
+         else Printf.sprintf "MOVES %d" !cur.moves);
       if !frame / 12 mod 2 = 0 then
         Font.draw_centered ~scale:2 ~cx:(Render.win_w / 2)
           ~y_top:((Render.board_h / 2) - 44)

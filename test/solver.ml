@@ -150,6 +150,16 @@ let report ?(trace = false) i =
   if trace && res.solvable then replay spec res.solution;
   res.solvable
 
+let dirs_of_string s =
+  List.filter_map
+    (function
+      | 'U' | 'u' -> Some Up
+      | 'D' | 'd' -> Some Down
+      | 'L' | 'l' -> Some Left
+      | 'R' | 'r' -> Some Right
+      | _ -> None)
+    (List.init (String.length s) (String.get s))
+
 let () =
   let args = Array.to_list Sys.argv in
   match args with
@@ -157,6 +167,9 @@ let () =
     let ok = ref true in
     Array.iteri (fun i _ -> if not (report i) then ok := false) Levels.all;
     if not !ok then exit 1
+  | [ _; n; "--play"; moves ] ->
+    (* replay an arbitrary move string with a full trace *)
+    replay Levels.all.(int_of_string n) (dirs_of_string moves)
   | _ :: n :: rest ->
     let trace = List.mem "--trace" rest in
     ignore (report ~trace (int_of_string n))
