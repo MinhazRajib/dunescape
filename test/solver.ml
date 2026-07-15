@@ -22,9 +22,18 @@ let dir_char = function Up -> 'U' | Down -> 'D' | Left -> 'L' | Right -> 'R'
    fingerprint only (cell, st, ri). *)
 let key gs =
   Marshal.to_string
-    ( gs.grid, gs.camel, gs.water, gs.power_left, gs.powerups, gs.void_col,
+    ( gs.grid, gs.camel, gs.water, gs.power_left, gs.powerups, gs.voids,
       List.map (fun e -> (e.cell, e.st, e.ri)) gs.enemies )
     []
+
+(* Real-time hazards are dodged with timing, not routing, so the solver
+   verifies the PUZZLE: it strips scorpions (they roam on a wall-clock) and
+   freezes the advancing application.  Vipers, tiles and the all-water rule
+   are modelled exactly. *)
+let sanitize gs =
+  { gs with
+    enemies = List.filter (fun e -> e.kind <> Scorpion) gs.enemies;
+    voids = [] }
 
 type result = {
   solvable : bool;
@@ -34,7 +43,7 @@ type result = {
 }
 
 let solve ?(max_states = 2_000_000) spec =
-  let initial = Board.parse_exn spec in
+  let initial = sanitize (Board.parse_exn spec) in
   let success gs =
     match gs.status with
     | Won -> not spec.twist
@@ -100,7 +109,7 @@ let solution_string sol =
   String.concat "" (List.map (fun d -> String.make 1 (dir_char d)) sol)
 
 let replay spec sol =
-  let gs = ref (Board.parse_exn spec) in
+  let gs = ref (sanitize (Board.parse_exn spec)) in
   Printf.printf "-- start --\n%s\n" (Board.to_ascii !gs);
   List.iteri
     (fun i d ->
@@ -126,6 +135,9 @@ let replay spec sol =
             | Ate_enemy (r, c) -> Printf.sprintf "ATE(%d,%d)" r c
             | Mirage (r, c) -> Printf.sprintf "MIRAGE(%d,%d)" r c
             | Exit_locked (r, c) -> Printf.sprintf "locked(%d,%d)" r c
+            | Chipped ((r, c), left) ->
+              Printf.sprintf "chipped(%d,%d) %d left" r c left
+            | Rock_sunk (r, c) -> Printf.sprintf "rock-sunk(%d,%d)" r c
             | Died (_, (r, c)) -> Printf.sprintf "DIED(%d,%d)" r c
             | Level_won -> "WON"
             | Twist_triggered -> "TWIST"

@@ -1,10 +1,9 @@
 (* DuneScape — main loop.
 
-   Fully turn-based: the game state only changes on keypresses, but we run a
-   light polling loop (~30fps) so ambient animation (shimmer, swirls, void
-   churn, particles) keeps the desert alive between turns.  Slide resolution
-   is instant (Slide.step); the animation afterwards merely replays the
-   returned path and events cosmetically. *)
+   Your moves are committed slides (Slide.step), but since the playtest the
+   WORLD is real-time: scorpions walk on a wall-clock timer and the finale's
+   job application advances on its own clock.  The polling loop (~30fps)
+   drives both, plus ambient animation. *)
 
 open Game
 open Game.Types
@@ -20,35 +19,43 @@ let frame = ref 0
 let msg = ref ""
 let msg_danger = ref false
 let sel = ref 0
-let unlocked_void = ref false
+let unlocked_finale = ref false
 let cleared = Array.make (Array.length Levels.all) false
 let deaths = ref 0
 let total_moves = ref 0
 let intro_timer = ref 0
+let trail : ((int * int) * int) list ref = ref []
+let last_scorpion_tick = ref 0.
+let last_app_tick = ref 0.
 
 let present () = Graphics.synchronize ()
+
+let is_dusk i = Levels.all.(i).voids <> [] || i > Levels.finale_index
 
 let load_level ?(quiet = false) i =
   level_idx := i;
   cur := Board.parse_exn Levels.all.(i);
   undo_stack := [];
+  trail := [];
   Fx.clear ();
-  palette := (if i = Levels.void_index then Palette.dusk else Palette.day);
+  palette := (if is_dusk i then Palette.dusk else Palette.day);
+  last_scorpion_tick := Unix.gettimeofday ();
+  last_app_tick := Unix.gettimeofday ();
   if not quiet then begin
     msg := Levels.all.(i).intro;
     msg_danger := false;
-    intro_timer := 100
+    intro_timer := 80
   end
 
 (* ---- frame composition ---- *)
 
-let draw_level_frame ~grid ~enemies ~powerups ~void_col ~water ~power_left
+let draw_level_frame ~grid ~enemies ~powerups ~voids ~water ~power_left
     ~moves ~camel_px ~facing () =
   let pal = !palette in
   let ox, oy = Fx.shake_offset () in
   Fx.draw_gradient ~x:0 ~y:0 ~w:Render.win_w ~h:Render.board_h pal.sky_bot
     pal.sky_top;
-  Render.draw_board pal ~grid ~enemies ~powerups ~void_col ~water
+  Render.draw_board pal ~grid ~enemies ~powerups ~voids ~trail:!trail ~water
     ~threshold:!cur.threshold ~frame:!frame ~camel_px ~facing
     ~is_protected:(power_left > 0) ~ox ~oy;
   Render.draw_hud pal ~name:Levels.all.(!level_idx).name ~water
@@ -62,18 +69,18 @@ let camel_px_of_cell cell =
 let draw_idle () =
   let gs = !cur in
   draw_level_frame ~grid:gs.grid ~enemies:gs.enemies ~powerups:gs.powerups
-    ~void_col:gs.void_col ~water:gs.water ~power_left:gs.power_left
-    ~moves:gs.moves ~camel_px:(camel_px_of_cell gs.camel) ~facing:gs.facing ();
+    ~voids:gs.voids ~water:gs.water ~power_left:gs.power_left ~moves:gs.moves
+    ~camel_px:(camel_px_of_cell gs.camel) ~facing:gs.facing ();
   if !intro_timer > 0 then begin
     decr intro_timer;
-    Render.draw_panel ~cx:(Render.win_w / 2) ~cy:(Render.board_h / 2) ~w:640
+    Render.draw_panel ~cx:(Render.win_w / 2) ~cy:(Render.board_h / 2) ~w:680
       ~h:120;
-    Font.draw_centered ~scale:4 ~cx:(Render.win_w / 2)
-      ~y_top:((Render.board_h / 2) + 44)
+    Font.draw_centered ~scale:3 ~cx:(Render.win_w / 2)
+      ~y_top:((Render.board_h / 2) + 42)
       (Palette.color_of !palette.gold)
       Levels.all.(!level_idx).name;
     Font.draw_centered ~scale:2 ~cx:(Render.win_w / 2)
-      ~y_top:((Render.board_h / 2) - 10)
+      ~y_top:((Render.board_h / 2) - 14)
       (Palette.color_of !palette.ui)
       Levels.all.(!level_idx).intro
   end
@@ -104,8 +111,9 @@ let ambient () =
 (* ---- event replay during the slide animation ---- *)
 
 let event_cell = function
-  | Bumped (c, _) | Broke c | Collected c | Got_power c | Sealed c
-  | Crumbled c | Ate_enemy c | Mirage c | Exit_locked c ->
+  | Bumped (c, _) | Chipped (c, _) | Rock_sunk c | Broke c | Collected c
+  | Got_power c | Sealed c | Crumbled c | Ate_enemy c | Mirage c
+  | Exit_locked c ->
     Some c
   | Teleported (a, _) -> Some a
   | Pushed (a, _) -> Some a
@@ -126,6 +134,15 @@ let apply_event_fx rgrid renemies rpowerups e =
     burst_at ~n:10 (r, c) (Palette.color_of pal.sand);
     Fx.add_shake 7.;
     (renemies, rpowerups)
+  | Chipped ((r, c), left) ->
+    rgrid.(r).(c) <- Dune left;
+    burst_at ~n:10 (r, c) (Palette.color_of pal.dune_dark);
+    Fx.add_shake 2.;
+    msg :=
+      Printf.sprintf "CRACKING! %d MORE HIT%s - OR A 3-TILE RUNWAY." left
+        (if left = 1 then "" else "S");
+    msg_danger := false;
+    (renemies, rpowerups)
   | Collected (r, c) ->
     rgrid.(r).(c) <- Empty;
     burst_at ~n:14 (r, c) (Palette.color_of pal.water);
@@ -143,9 +160,15 @@ let apply_event_fx rgrid renemies rpowerups e =
     (renemies, rpowerups)
   | Pushed ((r, c), (r2, c2)) ->
     rgrid.(r).(c) <- Empty;
-    rgrid.(r2).(c2) <- Push_rock;
+    if rgrid.(r2).(c2) <> Quicksand then rgrid.(r2).(c2) <- Push_rock;
     burst_at ~n:12 (r2, c2) (Palette.color_of pal.sand_dark);
     Fx.add_shake 3.;
+    (renemies, rpowerups)
+  | Rock_sunk (r, c) ->
+    rgrid.(r).(c) <- Empty;
+    burst_at ~n:20 (r, c) (Palette.color_of (Palette.scale pal.sand 0.5));
+    msg := "THE ROCK PACKED THE QUICKSAND SOLID.";
+    msg_danger := false;
     (renemies, rpowerups)
   | Teleported (a, b) ->
     burst_at ~n:16 a (Palette.color_of pal.water);
@@ -154,15 +177,15 @@ let apply_event_fx rgrid renemies rpowerups e =
   | Ate_enemy cell ->
     burst_at ~n:30 cell (Palette.color_of pal.gold);
     (List.filter (fun e -> e.cell <> cell) renemies, rpowerups)
-  | Bumped ((r, c), fake) ->
+  | Bumped ((r, c), revealed) ->
     burst_at ~n:6 (r, c) (Palette.color_of pal.sand_dark);
-    if fake then begin
-      msg := "THAT DUNE WILL NEVER BREAK.";
+    if revealed then begin
+      msg := "IT WON'T EVEN CRACK. THAT ONE'S A LIE.";
       msg_danger := false;
       Fx.add_shake 3.
     end
     else begin
-      msg := "PACKED SAND. IT NEEDS A RUNNING START.";
+      msg := "THUD. PACKED SAND.";
       msg_danger := false
     end;
     (renemies, rpowerups)
@@ -172,7 +195,8 @@ let death_msg = function
   | Pricked -> "THE CACTUS. OF COURSE."
   | Stung -> "THE SCORPION GOT YOU."
   | Gazed -> "THE VIPER'S GAZE IS LETHAL."
-  | Voided -> "THE VOID TOOK YOU."
+  | Voided -> "THE APPLICATION GOT YOU. WELCOME ABOARD."
+  | Sunk -> "THE QUICKSAND ATE YOU. IT LOOKED SO CALM."
 
 (* Replay [path]/[events] cosmetically, then commit [gs']. *)
 let animate pre events path gs' =
@@ -185,13 +209,12 @@ let animate pre events path gs' =
     incr frame;
     Fx.step ();
     draw_level_frame ~grid:rgrid ~enemies:!renemies ~powerups:!rpowerups
-      ~void_col:pre.void_col ~water:pre.water ~power_left:pre.power_left
+      ~voids:pre.voids ~water:pre.water ~power_left:pre.power_left
       ~moves:pre.moves ~camel_px ~facing ();
     present ();
     Unix.sleepf 0.013
   in
   let arrive cell prev =
-    (* fire all queued events belonging up to this cell *)
     let rec pump () =
       match !queue with
       | e :: rest ->
@@ -230,7 +253,7 @@ let animate pre events path gs' =
            draw_at (x1, y1)
          end;
          arrive cell !prev;
-         (* dust trail *)
+         trail := (!prev, !frame) :: !trail;
          if adjacent && Random.int 2 = 0 then begin
            let x, y = Render.px_of_cell !prev in
            Fx.spawn ~n:2 ~speed:1.2 ~size:2.5 ~x:(x + 24) ~y:(y + 12)
@@ -238,11 +261,11 @@ let animate pre events path gs' =
          end;
          prev := cell)
        rest;
-     (* landing puff *)
      let x, y = Render.px_of_cell !prev in
      Fx.spawn ~n:6 ~speed:1.6 ~size:3. ~x:(x + 24) ~y:(y + 10)
        (Palette.color_of !palette.sand_dark));
-  (* enemy step + void advance snap into place with the committed state *)
+  (* prune old prints *)
+  trail := List.filter (fun (_, stamp) -> !frame - stamp < 150) !trail;
   cur := gs';
   for _ = 1 to 3 do
     incr frame;
@@ -255,7 +278,6 @@ let animate pre events path gs' =
 (* ---- sequences ---- *)
 
 let wait_any_key_with ~draw =
-  (* keep animating while waiting *)
   let rec loop () =
     incr frame;
     Fx.step ();
@@ -267,7 +289,6 @@ let wait_any_key_with ~draw =
       loop ()
     end
   in
-  (* flush pending keys first *)
   while Graphics.key_pressed () do
     ignore (Graphics.read_key ())
   done;
@@ -301,7 +322,6 @@ let death_sequence reason cell =
   burst_at ~n:46 cell (Palette.color_of pal.danger);
   burst_at ~n:20 cell (Palette.color_of pal.camel);
   Fx.add_shake 13.;
-  (* red flash *)
   for i = 0 to 1 do
     incr frame;
     Fx.step ();
@@ -313,7 +333,6 @@ let death_sequence reason cell =
     present ();
     Unix.sleepf 0.04
   done;
-  (* let the poof play out *)
   for _ = 1 to 16 do
     incr frame;
     Fx.step ();
@@ -338,21 +357,30 @@ let typewriter ~scale ~cx ~y_top color text =
   Unix.sleepf 1.2
 
 let twist_sequence () =
-  (* 1. freeze *)
   Unix.sleepf 1.0;
-  (* 2. glitch the visible frame *)
   for _ = 1 to 22 do
     incr frame;
     Fx.glitch_frame ~w:Render.win_w ~h:Render.win_h;
     present ();
     Unix.sleepf 0.055
   done;
-  (* 3. the message *)
-  typewriter ~scale:4 ~cx:(Render.win_w / 2) ~y_top:((Render.win_h / 2) + 30)
-    (Graphics.rgb 255 60 60) "THE DESERT ISN'T DONE WITH YOU...";
-  (* 4. into the void level *)
-  unlocked_void := true;
-  load_level Levels.void_index
+  typewriter ~scale:3 ~cx:(Render.win_w / 2) ~y_top:((Render.win_h / 2) + 40)
+    (Graphics.rgb 255 60 60) "THE OASIS WAS A MIRAGE.";
+  typewriter ~scale:3 ~cx:(Render.win_w / 2) ~y_top:((Render.win_h / 2) + 40)
+    (Graphics.rgb 255 60 60) "THE APPLICATION HAS FOUND YOU.";
+  unlocked_finale := true;
+  load_level Levels.finale_index
+
+(* Fast page-turn between application stages. *)
+let page_transition next =
+  Graphics.set_color Render.paper_color;
+  Graphics.fill_rect 0 0 Render.win_w Render.win_h;
+  Font.draw_centered ~scale:4 ~cx:(Render.win_w / 2)
+    ~y_top:((Render.win_h / 2) + 30)
+    (Graphics.rgb 70 70 85) "PAGE TORN.";
+  present ();
+  Unix.sleepf 0.7;
+  load_level next
 
 (* ---- turns ---- *)
 
@@ -360,12 +388,18 @@ let do_turn dir =
   let pre = !cur in
   let gs', events, path = Slide.step pre dir in
   if List.length path <= 1 then begin
-    (* bump: cosmetic feedback only, the world did not tick *)
-    List.iter
-      (fun e ->
-        ignore (apply_event_fx (Array.map Array.copy pre.grid) [] [] e))
-      events;
-    cur := { pre with facing = gs'.facing }
+    (* a bump: maybe a chip — commit the grid, play feedback *)
+    if events <> [] then begin
+      undo_stack :=
+        pre :: (if List.length !undo_stack > 400 then [] else !undo_stack);
+      let scratch_enemies, scratch_powerups = (gs'.enemies, gs'.powerups) in
+      List.iter
+        (fun e ->
+          ignore
+            (apply_event_fx gs'.grid scratch_enemies scratch_powerups e))
+        events
+    end;
+    cur := gs'
   end
   else begin
     msg := "";
@@ -381,7 +415,7 @@ let do_turn dir =
           msg_danger := true;
           Fx.add_shake 4.
         | Exit_locked _ ->
-          msg := "THE OASIS SHIMMERS. MORE WATER.";
+          msg := "THE OASIS SHIMMERS. COLLECT ALL THE WATER.";
           msg_danger := false
         | _ -> ())
       events;
@@ -389,19 +423,33 @@ let do_turn dir =
     | Dead reason ->
       undo_stack := [];
       death_sequence reason gs'.camel
-    | Won ->
+    | Won -> begin
       cleared.(!level_idx) <- true;
       total_moves := !total_moves + gs'.moves;
       burst_at ~n:40 gs'.camel (Palette.color_of !palette.gold);
-      level_complete_overlay ();
-      if !level_idx = Levels.void_index then screen := Victory
-      else begin
-        let next = !level_idx + 1 in
-        if next = Levels.void_index && not !unlocked_void then
-          (* levels 1-3 flow onward; the void is only via the twist *)
+      let spec = Levels.all.(!level_idx) in
+      match spec.next with
+      | Some n when spec.voids <> [] -> page_transition n
+      | Some n ->
+        level_complete_overlay ();
+        load_level n
+      | None ->
+        if spec.voids <> [] then begin
+          (* the center of the map: it's over *)
+          for _ = 1 to 20 do
+            incr frame;
+            Fx.step ();
+            draw_idle ();
+            present ();
+            Unix.sleepf 0.03
+          done;
+          screen := Victory
+        end
+        else begin
+          level_complete_overlay ();
           screen := Level_select
-        else load_level next
-      end
+        end
+    end
     | Twisted ->
       cleared.(!level_idx) <- true;
       total_moves := !total_moves + gs'.moves;
@@ -411,6 +459,50 @@ let do_turn dir =
         msg := "STRANDED... PRESS R";
         msg_danger := true
       end
+  end
+
+(* ---- real-time world ---- *)
+
+let world_tick () =
+  if !screen = In_level && !cur.status = Alive && !intro_timer = 0 then begin
+    let now = Unix.gettimeofday () in
+    (* scorpions walk on their own clock, faster when hunting *)
+    let pace =
+      if Slide.is_any_scorpion_chasing !cur then scorpion_chase_tick_s
+      else scorpion_tick_s
+    in
+    if now -. !last_scorpion_tick >= pace then begin
+      last_scorpion_tick := now;
+      let gs', events = Slide.tick_scorpions !cur in
+      cur := gs';
+      List.iter
+        (fun e ->
+          match e with
+          | Ate_enemy cell ->
+            burst_at ~n:30 cell (Palette.color_of !palette.gold)
+          | Died (reason, cell) ->
+            burst_at ~n:20 cell (Palette.color_of !palette.danger);
+            death_sequence reason cell
+          | _ -> ())
+        events
+    end;
+    (* the application turns its lines *)
+    if !cur.status = Alive && !cur.voids <> []
+       && now -. !last_app_tick >= application_tick_s
+    then begin
+      last_app_tick := now;
+      let gs', events = Slide.tick_void !cur in
+      cur := gs';
+      Fx.add_shake 3.;
+      List.iter
+        (fun e ->
+          match e with
+          | Died (reason, cell) ->
+            burst_at ~n:24 cell (Palette.color_of !palette.danger);
+            death_sequence reason cell
+          | _ -> ())
+        events
+    end
   end
 
 (* ---- input ---- *)
@@ -431,8 +523,8 @@ let handle_key ch =
     | _ -> ())
   | Level_select -> (
     let max_sel =
-      if !unlocked_void then Array.length Levels.all - 1
-      else Levels.void_index - 1
+      if !unlocked_finale then Levels.card_count - 1
+      else Levels.card_count - 2
     in
     match ch with
     | 'a' -> sel := max 0 (!sel - 1)
@@ -478,7 +570,7 @@ let () =
   (match Sys.argv with
    | [| _; "--level"; n |] ->
      let n = int_of_string n in
-     unlocked_void := true;
+     unlocked_finale := true;
      load_level n;
      screen := In_level
    | _ -> ());
@@ -487,11 +579,12 @@ let () =
        incr frame;
        Fx.step ();
        ambient ();
+       world_tick ();
        (match !screen with
         | Title -> Render.draw_title Palette.day ~frame:!frame
         | Level_select ->
           Render.draw_level_select Palette.day ~frame:!frame ~sel:!sel
-            ~unlocked_void:!unlocked_void ~cleared
+            ~unlocked_void:!unlocked_finale ~cleared
         | In_level -> draw_idle ()
         | Victory ->
           Render.draw_victory Palette.dusk ~frame:!frame

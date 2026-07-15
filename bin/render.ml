@@ -93,8 +93,8 @@ let draw_solid (pal : Palette.t) x y r c =
   Graphics.moveto (x + tile - off) (y + (tile / 2));
   Graphics.lineto (x + tile - off) (y + tile - 1)
 
-let draw_dune (pal : Palette.t) x y =
-  (* a packed, rounded sand hump *)
+let draw_dune (pal : Palette.t) x y ~hp =
+  (* a packed, rounded sand hump; chips show as widening cracks *)
   Graphics.set_color (Palette.color_of pal.dune_dark);
   Graphics.fill_ellipse (x + (tile / 2)) (y + 16) 20 14;
   Graphics.set_color (Palette.color_of pal.dune);
@@ -104,7 +104,40 @@ let draw_dune (pal : Palette.t) x y =
   (* ripple lines *)
   Graphics.set_color (Palette.color_of pal.dune_dark);
   Graphics.draw_arc (x + (tile / 2)) (y + 17) 12 6 200 340;
-  Graphics.draw_arc (x + (tile / 2)) (y + 22) 8 4 200 340
+  Graphics.draw_arc (x + (tile / 2)) (y + 22) 8 4 200 340;
+  (* damage cracks *)
+  if hp < 3 then begin
+    Graphics.set_color (Palette.color_of pal.pit);
+    Graphics.moveto (x + (tile / 2)) (y + 30);
+    Graphics.lineto (x + (tile / 2) - 6) (y + 20);
+    Graphics.lineto (x + (tile / 2) - 3) (y + 12)
+  end;
+  if hp < 2 then begin
+    Graphics.set_color (Palette.color_of pal.pit);
+    Graphics.moveto (x + (tile / 2) + 3) (y + 28);
+    Graphics.lineto (x + (tile / 2) + 8) (y + 18);
+    Graphics.moveto (x + (tile / 2) - 6) (y + 20);
+    Graphics.lineto (x + (tile / 2) - 12) (y + 16)
+  end
+
+let draw_quicksand (pal : Palette.t) x y r c frame =
+  (* deceptively calm rippled sand, slightly sunken and greenish *)
+  let base = Palette.scale pal.sand 0.8 in
+  Graphics.set_color (Palette.color_of base);
+  Graphics.fill_rect (x + 2) (y + 2) (tile - 4) (tile - 4);
+  let cx = x + (tile / 2) and cy = y + (tile / 2) in
+  Graphics.set_color (Palette.color_of (Palette.scale pal.sand 0.62));
+  Graphics.fill_ellipse cx cy 19 13;
+  Graphics.set_color (Palette.color_of (Palette.scale pal.sand 0.5));
+  Graphics.fill_ellipse cx cy 12 8;
+  Graphics.set_color (Palette.color_of base);
+  Graphics.draw_ellipse cx cy (15 + (frame / 12 mod 3)) (10 + (frame / 12 mod 2));
+  (* a lazy bubble *)
+  let h = cell_hash r c in
+  if (frame + h) / 14 mod 4 = 0 then begin
+    Graphics.set_color (Palette.color_of (Palette.scale pal.sand 0.95));
+    Graphics.draw_circle (cx - 6 + (h mod 12)) (cy - 2 + (h / 7 mod 6)) 2
+  end
 
 let draw_water_drop (pal : Palette.t) x y frame =
   let cx = x + (tile / 2) and cy = y + (tile / 2) - 4 in
@@ -208,15 +241,41 @@ let draw_push_rock (pal : Palette.t) x y =
   Sprites.draw ~color_of:(rock_colors pal) ~x ~y_top:(y + tile) ~scale:4
     Sprites.rock
 
-let draw_tile (pal : Palette.t) ~frame ~locked_exit r c t ~ox ~oy =
+let draw_gate (pal : Palette.t) x y frame ~center_goal =
+  (* a stone gate out of the page — or, at the very center, the safe spot *)
+  if center_goal then begin
+    let cx = x + (tile / 2) and cy = y + (tile / 2) in
+    Fx.draw_glow ~cx ~cy ~radius:(20 + (frame / 6 mod 4)) ~steps:5 pal.gold
+      pal.sand;
+    Graphics.set_color (Palette.color_of pal.gold);
+    Graphics.draw_circle cx cy 14;
+    Graphics.draw_circle cx cy 9;
+    Graphics.fill_circle cx cy 4
+  end
+  else begin
+    Graphics.set_color (Palette.color_of pal.rock_dark);
+    Graphics.fill_rect (x + 4) (y + 4) 10 (tile - 8);
+    Graphics.fill_rect (x + tile - 14) (y + 4) 10 (tile - 8);
+    Graphics.fill_rect (x + 2) (y + tile - 12) (tile - 4) 8;
+    Fx.draw_glow ~cx:(x + (tile / 2)) ~cy:(y + (tile / 2) - 4)
+      ~radius:(10 + (frame / 8 mod 3)) ~steps:4 pal.gold pal.sand;
+    Graphics.set_color (Palette.color_of pal.rock_light);
+    Graphics.fill_rect (x + 4) (y + tile - 10) (tile - 8) 3
+  end
+
+let draw_tile (pal : Palette.t) ~frame ~locked_exit ~gate ~center_goal r c t
+    ~ox ~oy =
   let x, y = px_of_cell ~ox ~oy (r, c) in
   match t with
   | Solid -> draw_solid pal x y r c
   | Empty -> draw_sand pal x y r c
-  | Dune | Fake_dune ->
-    (* identical on purpose: the herring must be invisible *)
+  | Dune hp ->
     draw_sand pal x y r c;
-    draw_dune pal x y
+    draw_dune pal x y ~hp
+  | Fake_dune _ ->
+    (* identical to a healthy dune on purpose: the herring never cracks *)
+    draw_sand pal x y r c;
+    draw_dune pal x y ~hp:3
   | Water ->
     draw_sand pal x y r c;
     draw_water_drop pal x y frame
@@ -230,6 +289,9 @@ let draw_tile (pal : Palette.t) ~frame ~locked_exit r c t ~ox ~oy =
   | Crumble ->
     draw_sand pal x y r c;
     draw_crumble pal x y r c
+  | Quicksand ->
+    draw_sand pal x y r c;
+    draw_quicksand pal x y r c frame
   | Pit -> draw_pit pal x y
   | Push_rock ->
     draw_sand pal x y r c;
@@ -239,7 +301,8 @@ let draw_tile (pal : Palette.t) ~frame ~locked_exit r c t ~ox ~oy =
     draw_oasis pal x y frame ~locked:false ~fake:true
   | Exit ->
     draw_sand pal x y r c;
-    draw_oasis pal x y frame ~locked:locked_exit ~fake:false
+    if gate then draw_gate pal x y frame ~center_goal
+    else draw_oasis pal x y frame ~locked:locked_exit ~fake:false
 
 (* ---- entities ---- *)
 
@@ -310,45 +373,138 @@ let draw_powerup (pal : Palette.t) ~frame ~ox ~oy (r, c) =
     Graphics.fill_rect (x2 - 1) (y2 - 1) 3 3
   done
 
-let draw_void (pal : Palette.t) ~void_col ~ox ~oy:_ =
-  if void_col >= 0 then begin
-    let w = ((void_col + 1) * tile) + ox in
-    Graphics.set_color (Palette.color_of pal.void_deep);
-    Graphics.fill_rect 0 0 (max 0 w) board_h;
-    (* churn *)
-    for _ = 1 to 40 + (void_col * 12) do
-      let x = Random.int (max 1 w) in
-      let y = Random.int board_h in
-      Graphics.set_color
-        (if Random.int 6 = 0 then Palette.color_of pal.void_edge
-         else Palette.color_of (Palette.scale pal.void_deep (0.5 +. Random.float 1.2)));
-      Graphics.fill_rect x y (2 + Random.int 4) (2 + Random.int 4)
+(* The job application: an advancing wall of cream paper with ruled lines,
+   checkboxes and a torn leading edge.  One is drawn per active front. *)
+let paper_color = Graphics.rgb 248 242 222
+let rule_color = Graphics.rgb 140 150 180
+let margin_color = Graphics.rgb 220 90 90
+let ink_color = Graphics.rgb 70 70 85
+
+let draw_paper_rect x0 y0 x1 y1 =
+  let x0 = max 0 x0 and y0 = max 0 y0 in
+  let x1 = min win_w x1 and y1 = min board_h y1 in
+  if x1 > x0 && y1 > y0 then begin
+    Graphics.set_color paper_color;
+    Graphics.fill_rect x0 y0 (x1 - x0) (y1 - y0);
+    (* ruled lines *)
+    Graphics.set_color rule_color;
+    let y = ref (y0 + 6) in
+    while !y < y1 do
+      Graphics.moveto x0 !y;
+      Graphics.lineto (x1 - 1) !y;
+      y := !y + 14
     done;
-    (* ragged leading edge *)
-    let y = ref 0 in
-    while !y < board_h do
-      let bh = 6 + Random.int 14 in
-      let reach = Random.int 16 in
-      Graphics.set_color (Palette.color_of pal.void_deep);
-      Graphics.fill_rect w !y reach bh;
-      if Random.int 4 = 0 then begin
-        Graphics.set_color (Palette.color_of pal.void_edge);
-        Graphics.fill_rect (w + reach - 2) !y 3 (bh / 2)
-      end;
-      y := !y + bh
+    (* scribbled "ink" and checkboxes *)
+    let y = ref (y0 + 10) in
+    while !y < y1 - 6 do
+      let x = ref (x0 + 10) in
+      while !x < x1 - 24 do
+        if (!x + (7 * !y)) mod 5 = 0 then begin
+          Graphics.set_color ink_color;
+          Graphics.fill_rect !x !y (8 + ((!x * !y) mod 9)) 2
+        end;
+        if (!x + (3 * !y)) mod 97 = 0 then begin
+          Graphics.set_color ink_color;
+          Graphics.draw_rect !x (!y - 2) 7 7;
+          if !y mod 2 = 0 then begin
+            Graphics.moveto !x (!y - 2);
+            Graphics.lineto (!x + 7) (!y + 5);
+            Graphics.moveto !x (!y + 5);
+            Graphics.lineto (!x + 7) (!y - 2)
+          end
+        end;
+        x := !x + 26
+      done;
+      y := !y + 28
     done
   end
 
+(* Torn edge + red margin line along the leading edge of a front. *)
+let draw_paper_edge ~vertical ~pos ~toward =
+  (* [toward] = +1 if the paper grows toward larger coords *)
+  if vertical then begin
+    let y = ref 0 in
+    while !y < board_h do
+      let bh = 6 + Random.int 12 in
+      let reach = Random.int 14 * toward in
+      Graphics.set_color paper_color;
+      Graphics.fill_rect (min pos (pos + reach)) !y (abs reach) bh;
+      y := !y + bh
+    done;
+    Graphics.set_color margin_color;
+    Graphics.moveto (pos - (6 * toward)) 0;
+    Graphics.lineto (pos - (6 * toward)) (board_h - 1)
+  end
+  else begin
+    let x = ref 0 in
+    while !x < win_w do
+      let bw = 6 + Random.int 12 in
+      let reach = Random.int 14 * toward in
+      Graphics.set_color paper_color;
+      Graphics.fill_rect !x (min pos (pos + reach)) bw (abs reach);
+      x := !x + bw
+    done;
+    Graphics.set_color margin_color;
+    Graphics.moveto 0 (pos - (6 * toward));
+    Graphics.lineto (win_w - 1) (pos - (6 * toward))
+  end
+
+let draw_application ~voids ~ox:_ =
+  List.iter
+    (fun (side, p) ->
+      match side with
+      | Left ->
+        let x1 = (p + 1) * tile in
+        draw_paper_rect 0 0 x1 board_h;
+        draw_paper_edge ~vertical:true ~pos:x1 ~toward:1
+      | Right ->
+        let x0 = p * tile in
+        draw_paper_rect x0 0 win_w board_h;
+        draw_paper_edge ~vertical:true ~pos:x0 ~toward:(-1)
+      | Up ->
+        (* rows 0..p = the TOP strip of the screen *)
+        let y0 = (rows - 1 - p) * tile in
+        draw_paper_rect 0 y0 win_w board_h;
+        draw_paper_edge ~vertical:false ~pos:y0 ~toward:(-1)
+      | Down ->
+        (* rows p..12 = the BOTTOM strip of the screen *)
+        let y1 = (rows - p) * tile in
+        draw_paper_rect 0 0 win_w y1;
+        draw_paper_edge ~vertical:false ~pos:y1 ~toward:1)
+    voids
+
+(* Fading hoofprints along recently traversed cells. *)
+let draw_trail (pal : Palette.t) ~frame ~ox ~oy trail =
+  List.iter
+    (fun ((r, c), stamp) ->
+      let age = frame - stamp in
+      if age < 150 then begin
+        let x, y = px_of_cell ~ox ~oy (r, c) in
+        let shade = if age < 50 then 0.78 else if age < 100 then 0.86 else 0.93 in
+        Graphics.set_color (Palette.color_of (Palette.scale pal.sand shade));
+        let h = cell_hash r c in
+        Graphics.fill_rect (x + 14 + (h mod 5)) (y + 18) 4 3;
+        Graphics.fill_rect (x + 26 + (h mod 4)) (y + 26) 4 3;
+        Graphics.fill_rect (x + 18 + (h mod 3)) (y + 32) 3 3;
+        Graphics.fill_rect (x + 28) (y + 14) 3 3
+      end)
+    trail
+
 (* ---- the full board ---- *)
 
-let draw_board (pal : Palette.t) ~grid ~enemies ~powerups ~void_col ~water
-    ~threshold ~frame ~camel_px ~facing ~is_protected ~ox ~oy =
+let draw_board (pal : Palette.t) ~grid ~enemies ~powerups ~voids ~trail
+    ~water ~threshold ~frame ~camel_px ~facing ~is_protected ~ox ~oy =
   let locked_exit = water < threshold in
+  let gate = voids <> [] in
+  (* the "center goal" styling is used on the last page of the application *)
+  let center_goal = gate && List.mem Up (List.map fst voids) in
   for r = 0 to rows - 1 do
     for c = 0 to cols - 1 do
-      draw_tile pal ~frame ~locked_exit r c grid.(r).(c) ~ox ~oy
+      draw_tile pal ~frame ~locked_exit ~gate ~center_goal r c grid.(r).(c)
+        ~ox ~oy
     done
   done;
+  draw_trail pal ~frame ~ox ~oy trail;
   draw_los pal ~frame ~is_protected ~ox ~oy
     (Slide.viper_los_cells grid enemies);
   List.iter (draw_powerup pal ~frame ~ox ~oy) powerups;
@@ -357,7 +513,7 @@ let draw_board (pal : Palette.t) ~grid ~enemies ~powerups ~void_col ~water
    draw_camel pal ~px:(px +. float_of_int ox) ~py:(py +. float_of_int oy)
      ~facing);
   Fx.draw ();
-  draw_void pal ~void_col ~ox ~oy
+  draw_application ~voids ~ox
 
 (* ---- HUD ---- *)
 
@@ -466,16 +622,13 @@ let draw_title (pal : Palette.t) ~frame =
   in
   Sprites.draw ~color_of:(camel_colors pal) ~x:cx ~y_top:(cy + 84) ~scale:7
     Sprites.camel;
-  (* title *)
-  Font.draw_shadowed ~scale:9 ~cx:(win_w / 2) ~y_top:610
+  (* title: big, central *)
+  Font.draw_shadowed ~scale:12 ~cx:(win_w / 2) ~y_top:530
     ~shadow:(Palette.color_of pal.camel_dark)
     (Palette.color_of pal.ui) "DUNESCAPE";
-  Font.draw_centered ~scale:2 ~cx:(win_w / 2) ~y_top:520
+  Font.draw_centered ~scale:3 ~cx:(win_w / 2) ~y_top:410
     (Palette.color_of pal.gold)
-    "A TURN-BASED DESERT PUZZLE";
-  Font.draw_centered ~scale:2 ~cx:(win_w / 2) ~y_top:490
-    (Palette.color_of pal.ui)
-    "EVERY MOVE IS A COMMITMENT.";
+    "ALL TRADES ARE FINAL.";
   if frame / 14 mod 2 = 0 then
     Font.draw_centered ~scale:3 ~cx:(win_w / 2) ~y_top:80
       (Palette.color_of pal.ui) "PRESS ENTER";
@@ -505,15 +658,21 @@ let draw_level_select (pal : Palette.t) ~frame ~sel ~unlocked_void ~cleared =
   Font.draw_shadowed ~scale:5 ~cx:(win_w / 2) ~y_top:680
     ~shadow:(Palette.color_of pal.camel_dark)
     (Palette.color_of pal.ui) "SELECT LEVEL";
-  let n = Array.length Levels.all in
+  let n = Levels.card_count in
   let card_w = 200 and card_h = 280 and gap = 24 in
   let total = (n * card_w) + ((n - 1) * gap) in
   let x0 = (win_w - total) / 2 in
   Array.iteri
     (fun i (spec : Levels.spec) ->
+      if i < n then begin
+      let spec =
+        if i = Levels.finale_index then
+          { spec with Levels.name = "THE APPLICATION" }
+        else spec
+      in
       let x = x0 + (i * (card_w + gap)) in
       let y = 240 + if i = sel then 10 else 0 in
-      let hidden = i = Levels.void_index && not unlocked_void in
+      let hidden = i = Levels.finale_index && not unlocked_void in
       Graphics.set_color
         (if i = sel then Graphics.rgb 60 40 22 else Graphics.rgb 44 30 18);
       Graphics.fill_rect x y card_w card_h;
@@ -544,6 +703,7 @@ let draw_level_select (pal : Palette.t) ~frame ~sel ~unlocked_void ~cleared =
         if cleared.(i) then
           Font.draw_centered ~scale:2 ~cx:(x + (card_w / 2)) ~y_top:(y + 34)
             (Palette.color_of pal.water) "CLEARED"
+      end
       end)
     Levels.all;
   Font.draw_centered ~scale:2 ~cx:(win_w / 2) ~y_top:160
@@ -563,7 +723,10 @@ let draw_victory (pal : Palette.t) ~frame ~total_moves ~deaths =
   Font.draw_shadowed ~scale:6 ~cx:(win_w / 2) ~y_top:600
     ~shadow:(Palette.color_of pal.void_deep)
     (Palette.color_of pal.gold) "THE DESERT.";
-  Font.draw_centered ~scale:2 ~cx:(win_w / 2) ~y_top:300
+  Font.draw_centered ~scale:2 ~cx:(win_w / 2) ~y_top:330
+    (Palette.color_of pal.ui)
+    "AND DODGED THE PAPERWORK.";
+  Font.draw_centered ~scale:2 ~cx:(win_w / 2) ~y_top:290
     (Palette.color_of pal.ui)
     (Printf.sprintf "MOVES: %d    DEATHS: %d" total_moves deaths);
   if frame / 14 mod 2 = 0 then

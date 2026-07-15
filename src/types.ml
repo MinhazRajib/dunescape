@@ -7,14 +7,16 @@ type dir = Up | Down | Left | Right
 type tile =
   | Empty
   | Solid                    (* unbreakable rock; stops slides *)
-  | Dune                     (* breakable if hit with runway >= break_runway *)
-  | Fake_dune                (* herring: looks like Dune, never breaks *)
+  | Dune of int              (* breakable: runway >= break_runway breaks it
+                                instantly; each weak bump chips 1 hp *)
+  | Fake_dune of int         (* herring: never breaks; int counts bumps taken *)
   | Water                    (* collect; does NOT stop the slide *)
   | Cactus                   (* instant death *)
   | Teleport of int          (* paired by id; warp + keep sliding *)
   | One_way of dir           (* enter only while moving in [dir]; seals on exit *)
   | Crumble                  (* safe once; becomes Pit when you leave it *)
   | Pit                      (* collapsed crumble: blocks slides *)
+  | Quicksand                (* safe to slide OVER; deadly to STOP on *)
   | Push_rock                (* shoved ahead to its own stopper *)
   | False_exit               (* mirage: looks like the oasis, does nothing *)
   | Exit                     (* win by STOPPING on it with enough water *)
@@ -31,7 +33,7 @@ type enemy = {
   ri : int;                  (* index in route of current patrol target *)
 }
 
-type death_reason = Pricked | Stung | Gazed | Voided
+type death_reason = Pricked | Stung | Gazed | Voided | Sunk
 
 type status = Alive | Dead of death_reason | Won | Twisted
 
@@ -45,7 +47,9 @@ type gs = {
   enemies : enemy list;
   powerups : (int * int) list; (* cells holding Oasis Power *)
   power_left : int;          (* oasis-power turns remaining (0 = none) *)
-  void_col : int;            (* rightmost voided column; -1 = void inactive *)
+  voids : (dir * int) list;  (* advancing walls: (side it comes FROM, front).
+                                Left,p eats cols <= p;  Right,p eats cols >= p;
+                                Up,p eats rows <= p;    Down,p eats rows >= p *)
   twist : bool;              (* stopping on the unlocked exit twists instead of winning *)
   status : status;
 }
@@ -54,6 +58,8 @@ type gs = {
    The renderer replays them as the camel animates along the path. *)
 type event =
   | Bumped of (int * int) * bool (* cell, [true] = fake dune revealed itself *)
+  | Chipped of (int * int) * int (* dune damaged by a weak bump; hits left *)
+  | Rock_sunk of (int * int)     (* push rock swallowed by quicksand *)
   | Broke of (int * int)
   | Collected of (int * int)
   | Got_power of (int * int)
@@ -83,11 +89,27 @@ let delta = function
 
 let manhattan (r1, c1) (r2, c2) = abs (r1 - r2) + abs (c1 - c2)
 
-(* ---- Tuning constants (README section 20) ---- *)
+(* Is (r,c) consumed by any advancing wall? *)
+let is_voided voids (r, c) =
+  List.exists
+    (fun (side, p) ->
+      match side with
+      | Left -> c <= p
+      | Right -> c >= p
+      | Up -> r <= p
+      | Down -> r >= p)
+    voids
+
+(* ---- Tuning constants (README section 20, retuned after playtest) ---- *)
 
 let break_runway = 3       (* tiles of runway needed to shatter a Dune *)
-let scorpion_detect = 3    (* manhattan radius that flips Patrol -> Chase *)
-let scorpion_escape = 5    (* radius beyond which a chaser gives up *)
+let dune_hp = 3            (* weak bumps needed to chip a dune apart *)
+let scorpion_detect = 5    (* manhattan radius that flips Patrol -> Chase *)
+let scorpion_escape = 8    (* radius beyond which a chaser gives up *)
 let viper_range = 6        (* line-of-sight reach in tiles *)
 let oasis_power_moves = 6  (* protected turns, counting the pickup turn *)
-let void_step_per_move = 1 (* columns the void advances each move *)
+
+(* Real-time pacing (the world no longer waits for you): *)
+let scorpion_tick_s = 0.45   (* seconds per scorpion step while calm *)
+let scorpion_chase_tick_s = 0.30 (* ...and while chasing *)
+let application_tick_s = 1.8 (* seconds per row/column the application eats *)

@@ -6,8 +6,8 @@ open Types
 let tile_of_char_exn ~pos = function
   | '#' -> Solid
   | '.' -> Empty
-  | '~' -> Dune
-  | '%' -> Fake_dune
+  | '~' -> Dune dune_hp
+  | '%' -> Fake_dune 0
   | 'o' -> Water
   | 'X' -> Cactus
   | '1' .. '4' as ch -> Teleport (Char.code ch - Char.code '0')
@@ -16,6 +16,7 @@ let tile_of_char_exn ~pos = function
   | '^' -> One_way Up
   | 'v' -> One_way Down
   | ':' -> Crumble
+  | 'q' -> Quicksand
   | 'O' -> Push_rock
   | '?' -> False_exit
   | 'E' -> Exit
@@ -116,10 +117,27 @@ let parse_exn (spec : Levels.spec) =
         (fun cell -> { kind = Viper; cell; st = Patrol; route = [||]; ri = 0 })
         !vipers
   in
+  (* Playtest rule: the oasis unlocks only when EVERY drop is collected. *)
+  let total_water =
+    Array.fold_left
+      (fun acc row ->
+        Array.fold_left (fun a t -> if t = Water then a + 1 else a) acc row)
+      0 grid
+  in
+  ignore spec.threshold;
+  let voids =
+    List.map
+      (fun side ->
+        match side with
+        | Left -> (Left, 0)
+        | Right -> (Right, cols - 1)
+        | Up -> (Up, 0)
+        | Down -> (Down, rows - 1))
+      spec.voids
+  in
   { grid; camel = spawn; facing = Right; water = 0;
-    threshold = spec.threshold; moves = 0; enemies; powerups = !powerups;
-    power_left = 0; void_col = spec.void_start; twist = spec.twist;
-    status = Alive }
+    threshold = total_water; moves = 0; enemies; powerups = !powerups;
+    power_left = 0; voids; twist = spec.twist; status = Alive }
 
 (* ASCII snapshot of a live state — the solver's trace output. *)
 let to_ascii gs =
@@ -128,7 +146,7 @@ let to_ascii gs =
     for c = 0 to cols - 1 do
       let ch =
         if gs.camel = (r, c) then '@'
-        else if gs.void_col >= 0 && c <= gs.void_col then '&'
+        else if is_voided gs.voids (r, c) then '&'
         else
           match List.find_opt (fun e -> e.cell = (r, c)) gs.enemies with
           | Some { kind = Scorpion; st = Chase; _ } -> '!'
@@ -140,8 +158,8 @@ let to_ascii gs =
               match gs.grid.(r).(c) with
               | Empty -> '.'
               | Solid -> '#'
-              | Dune -> '~'
-              | Fake_dune -> '%'
+              | Dune _ -> '~'
+              | Fake_dune _ -> '%'
               | Water -> 'o'
               | Cactus -> 'X'
               | Teleport id -> Char.chr (Char.code '0' + id)
@@ -150,6 +168,7 @@ let to_ascii gs =
               | One_way Up -> '^'
               | One_way Down -> 'v'
               | Crumble -> ':'
+              | Quicksand -> 'q'
               | Pit -> '_'
               | Push_rock -> 'O'
               | False_exit -> '?'

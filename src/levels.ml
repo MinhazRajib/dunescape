@@ -1,40 +1,40 @@
 (* Level data. Boards are 20x13 ASCII, validated by [Board.parse_exn].
 
    Legend:
-     '#' solid rock        '.' empty sand      '~' breakable dune
+     '#' solid rock        '.' empty sand      '~' breakable dune (3 hp)
      '%' fake dune         'o' water drop      'X' cactus
      '1'..'4' teleport pairs                   '>' '<' '^' 'v' one-way door
-     ':' crumble tile      'O' push rock       '?' false exit (mirage)
-     'E' exit (oasis)      'S' camel spawn
-     's' scorpion (patrol given in [patrols])  'V' viper (static)
-     'P' oasis power *)
+     ':' crumble tile      'q' quicksand       'O' push rock
+     '?' false exit        'E' exit / gate     'S' camel spawn
+     's' scorpion (patrol in [patrols])        'V' viper (static)
+     'P' oasis power
+
+   The exit unlocks only when EVERY water drop has been collected.
+   [voids] lists the sides an advancing wall comes from (the finale's
+   job application).  [next] chains levels: winning loads that index;
+   [next = None] on a void level means victory. *)
 
 type spec = {
   name : string;
   intro : string;
   ascii : string array;
-  threshold : int;
+  threshold : int; (* legacy; the parser recomputes it as ALL water *)
   patrols : ((int * int) * (int * int)) list;
-      (* scorpion spawn cell -> far end of its back-and-forth patrol line *)
-  twist : bool; (* stopping on the unlocked exit triggers the twist *)
-  void_start : int; (* -1 = no void; otherwise initial voided column *)
+  twist : bool;
+  voids : Types.dir list;
+  next : int option;
 }
 
 let level_1 =
   {
     name = "THE OASIS TRAIL";
     intro = "SLIDE UNTIL SOMETHING STOPS YOU.";
-    threshold = 3;
+    threshold = 0;
     patrols = [];
     twist = false;
-    void_start = -1;
+    voids = [];
+    next = Some 1;
     ascii =
-      (* Tutorial: move 1 slides across water (pass-over collection); move 3
-         glides straight PAST the visible exit (the overshoot lesson, free);
-         the single dune needs the visible 7-tile runway from (10,5); the
-         col-15 shaft force-collects enough water that the one-way door drop
-         onto the exit can never strand anyone.  Two cacti, both lane-end,
-         never forced. *)
       [|
         "####################";
         "#S...o....##########";
@@ -56,32 +56,30 @@ let level_2 =
   {
     name = "THE DEEP DESERT";
     intro = "THE DESERT LIES.";
-    threshold = 4;
+    threshold = 0;
     patrols = [ ((8, 12), (11, 12)) ];
     twist = false;
-    void_start = -1;
+    voids = [];
+    next = Some 2;
     ascii =
-      (* The viper at (5,10) carves a plus of death; the dune at (5,6) is its
-         western cover — breaking it (a 3-runway invitation from the west)
-         opens the sightline and kills you mid-slide.  The two waters inside
-         the gaze lane are bait, collectable only under Oasis Power (P, a
-         1-move detour at (10,1)).  The scorpion patrols col 12 vertically,
-         timing-gating both east-west corridors.  The false exit at (8,15)
-         sits on the tempting fast lane east; the real oasis needs the
-         north-east climb through the one-way door. *)
+      (* The viper carves a plus of death; the dune at (5,6) is its western
+         cover.  The bait water at (5,8) sits INSIDE the gaze — the oasis
+         power at (2,8) is collected mid-dive down col 8, protecting that
+         very slide.  The mirage now sits at the end of the mandatory
+         row-11 run.  Every drop is required. *)
       [|
         "####################";
         "#S...o...#.......###";
-        "#.........#.....#E.#";
+        "#.......P.#.....#E.#";
         "#..##..............#";
         "#..................#";
-        "#o....~oo.V..#.....#";
+        "#o....~.o.V..#.....#";
         "#.................^#";
         "#...##....#........#";
-        "#...........s..?#..#";
-        "##.................#";
-        "#P.................#";
-        "#....o...o.........#";
+        "#...........s......#";
+        "#..................#";
+        "#..................#";
+        "#....o....o.......?#";
         "####################";
       |];
   }
@@ -90,26 +88,23 @@ let level_3 =
   {
     name = "THE RECKONING";
     intro = "TRUST NOTHING.";
-    threshold = 4;
-    patrols = [ ((9, 8), (11, 8)) ];
+    threshold = 0;
+    patrols = [ ((9, 8), (11, 8)); ((6, 16), (10, 16)) ];
     twist = true;
-    void_start = -1;
+    voids = [];
+    next = None;
     ascii =
-      (* West: water runs guarded by a scorpion gauntlet on row 11 and a
-         viper hub at (6,10) whose sightlines are capped by walls and by the
-         cover dune at (6,7) — breaking that dune kills you on the same
-         slide.  The col-13 wall has two breakable dunes: the north one
-         (row 2) rockets you into a cactus (break the WRONG wall), the south
-         one (row 9) is the way in.  East: two crumble tiles become the pits
-         that let you land on the oasis — which is not what it seems. *)
+      (* Two scorpions now: the col-8 gate and an east watchman over the
+         crumble endgame.  The col-13 wall has two breakable dunes: the
+         north one rockets you into a cactus, the south one is the way in. *)
       [|
         "####################";
         "#So#....#....~..X..#";
-        "#............#.....#";
+        "#............#q....#";
         "#.........#..#.#...#";
         "#............#...:.#";
         "#o...........#...E.#";
-        "#......~..V#.#.....#";
+        "#......~..V#.#..s..#";
         "#............#.....#";
         "##....%...#..#.....#";
         "#.....o.s....~.....#";
@@ -119,40 +114,132 @@ let level_3 =
       |];
   }
 
-(* The finale (README section 13, Option A): the oasis was a mirage.  The void
-   advances one column after every move; out-plan it and stop on the true
-   exit.  Fully turn-based — a race of foresight, not fingers. *)
-let level_void =
+(* ---- THE APPLICATION ----
+   The oasis was a mirage.  What advances across the desert is a job
+   application, one ruled line at a time.  No water out here — just escape.
+   Four pages; the gate on each leads deeper.  On the last page you must
+   reach the very center of the map. *)
+
+let page_1 =
   {
-    name = "THE CLOSING VOID";
-    intro = "THE DESERT ISN'T DONE WITH YOU...";
+    name = "PAGE 1: PERSONAL INFORMATION";
+    intro = "IT'S COMING FROM THE LEFT. RUN.";
     threshold = 0;
     patrols = [];
     twist = false;
-    void_start = 0;
+    voids = [ Types.Left ];
+    next = Some 4;
     ascii =
-      (* A comb maze: wall columns with alternating top/bottom gaps force a
-         committed D/R/U zigzag eastward while the void eats the columns
-         behind you.  Two dunes give mid-run breaks (runway 4 upward); the
-         exit is landed by the L-then-D finish at the top-right. *)
+      (* A comb of lanes with one chip-mandatory dune on the middle row:
+         three bumps to crack it while the paper closes in. *)
       [|
         "####################";
-        "#.S.#.....#..o..#..#";
+        "#.S....#..#.....#..#";
+        "#...#..#..#q.#..#..#";
+        "#...#..#..#..#..#..#";
+        "#...#..#..#..#..#..#";
+        "#...#..#.##..#.#.#.#";
+        "#...#..#...~.#...E##";
         "#...#..#..#..#..#..#";
         "#...#..#..#..#..#..#";
         "#...#..#..#..#..#..#";
         "#...#..#..#..#..#..#";
-        "#...#.~#..#..#..#E~#";
-        "#...#..#..#..#..##.#";
-        "#...#..#..#..#..#..#";
-        "#...#..#..#..#..#..#";
-        "#...#..#..#..#..#..#";
-        "#....o.#.....#.....#";
+        "#...#q....#..#..#..#";
         "####################";
       |];
   }
 
-let all = [| level_1; level_2; level_3; level_void |]
+let page_2 =
+  {
+    name = "PAGE 2: EMPLOYMENT HISTORY";
+    intro = "NOW IT'S COMING FROM BOTH SIDES.";
+    threshold = 0;
+    patrols = [];
+    twist = false;
+    voids = [ Types.Left; Types.Right ];
+    next = Some 5;
+    ascii =
+      (* Symmetric squeeze: climb the center spine while both margins close.
+         The teleport pair swaps you between the doomed flanks. *)
+      [|
+        "####################";
+        "#.......#E.........#";
+        "#..q...........q...#";
+        "#...##........###..#";
+        "#........#.........#";
+        "#.....#......#.....#";
+        "#..1......#......1.#";
+        "#.....#......#.....#";
+        "#........#.........#";
+        "#....#.........#...#";
+        "#..................#";
+        "#q.......S........q#";
+        "####################";
+      |];
+  }
 
-(* Index in [all] of the hidden finale (reached via the Level-3 twist). *)
-let void_index = 3
+let page_3 =
+  {
+    name = "PAGE 3: REFERENCES";
+    intro = "IT RISES FROM BELOW.";
+    threshold = 0;
+    patrols = [];
+    twist = false;
+    voids = [ Types.Down ];
+    next = Some 6;
+    ascii =
+      (* Climb through offset slots in three shelf walls while the paper
+         rises.  The long panicked skid right ends in quicksand. *)
+      [|
+        "####################";
+        "#...............#E.#";
+        "#..................#";
+        "####.####.####.###.#";
+        "#..................#";
+        "#..................#";
+        "#.###.####.####.####";
+        "#...............#..#";
+        "#..................#";
+        "###.####.####.####.#";
+        "#...#.............q#";
+        "#.S................#";
+        "####################";
+      |];
+  }
+
+let page_4 =
+  {
+    name = "PAGE 4: SIGN HERE.";
+    intro = "REACH THE CENTER. DO NOT SIGN.";
+    threshold = 0;
+    patrols = [];
+    twist = false;
+    voids = [ Types.Up ];
+    next = None;
+    ascii =
+      (* The final line descends from the top; the only safe cell in the
+         desert is its exact center. *)
+      [|
+        "####################";
+        "#..................#";
+        "#..................#";
+        "#..................#";
+        "#..................#";
+        "#........##........#";
+        "#.......#E.........#";
+        "#.....#............#";
+        "#..........#..q....#";
+        "#........#.........#";
+        "#....#.............#";
+        "#........S.........#";
+        "####################";
+      |];
+  }
+
+let all = [| level_1; level_2; level_3; page_1; page_2; page_3; page_4 |]
+
+(* Index the Level-3 twist jumps to (start of the application chain). *)
+let finale_index = 3
+
+(* How many cards the level-select screen shows (3 levels + the hidden one). *)
+let card_count = 4

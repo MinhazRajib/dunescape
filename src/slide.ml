@@ -1,35 +1,39 @@
 (* The slide resolver — the heart of DuneScape (README sections 5, 6, 17).
 
-   [step gs dir] resolves one full turn:
-     1. the camel slides until something stops it (resolving breaks, pickups,
-        teleports, one-way doors, pushes and deaths along the way);
-     2. if the camel actually moved, the world ticks: enemies each step once,
-        then the void (if active) advances one column.
+   [step gs dir] resolves ONE player action: the camel slides until something
+   stops it (resolving breaks, chips, pickups, teleports, one-way doors,
+   pushes and deaths along the way).
+
+   Since the playtest, the WORLD is real-time: scorpions walk on a wall-clock
+   timer ([tick_scorpions], called by the main loop), and the finale's void
+   advances on its own clock ([tick_void]).  Player moves no longer tick the
+   world — but the world no longer waits for you to think, either.
 
    Design decisions (all deliberate, tuned for puzzle design):
    - Runway RESETS to 0 after breaking a dune: momentum is spent, so a pair of
      back-to-back dunes is an unbreakable barrier unless there is a gap.
+   - A weak bump (runway < 3) CHIPS a dune: [dune_hp] bumps crumble it the
+     slow way — an alternative that costs time while something hunts you.
    - Teleports preserve runway (portals conserve momentum).
    - A one-way door can only be ENTERED while moving in its arrow direction,
      and it seals (becomes Solid) when the camel LEAVES its cell.
-   - Crumble tiles become Pit when the camel LEAVES them, so you may rest on
-     one safely for a turn.
+   - Crumble tiles become Pit when the camel LEAVES them; pits STOP slides.
+   - Quicksand is safe to slide OVER but deadly to STOP on.  A pushed rock
+     that comes to rest on quicksand sinks and neutralises it.
    - Water / Exit / False_exit are pass-through: you win only by STOPPING on
-     the unlocked exit (the overshoot mechanic).
+     the unlocked exit (the overshoot mechanic).  The exit unlocks when EVERY
+     water drop on the level has been collected.
    - Pushing a rock spends all momentum: the rock slides to its own stopper
      and the camel stops in the rock's original cell.
    - Viper line-of-sight is computed against the LIVE grid, so breaking a dune
-     mid-slide can expose you to a gaze on that very slide.
-   - A press that moves the camel zero tiles (a bump) does NOT advance the
-     world: no enemy steps, no void advance, no move counted.  Waiting is not
-     a resource; timing gates must be solved by routing. *)
+     mid-slide can expose you to a gaze on that very slide. *)
 
 open Types
 
 exception Died_mid_slide of death_reason * (int * int)
 
 let is_opaque = function
-  | Empty | Water | Crumble | Pit -> false
+  | Empty | Water | Crumble | Pit | Quicksand -> false
   | _ -> true
 
 (* All cells strictly between [a] and [b] (same row or column) see-through. *)
@@ -87,7 +91,7 @@ let viper_los_cells grid enemies =
     enemies;
   !cells
 
-(* ---- Enemy movement (one step per player move) ---- *)
+(* ---- Enemy movement (real-time; one step per tick) ---- *)
 
 let is_enemy_walkable grid occupied (r, c) =
   is_in_bounds r c
@@ -178,7 +182,8 @@ let find_teleport_pair grid id origin =
   !found
 
 (* [step gs dir] -> (new state, events in order, path of cells traversed).
-   The path always starts with the camel's cell; length 1 means no movement. *)
+   The path always starts with the camel's cell; length 1 means no movement
+   (though a chip-bump still changes the grid). *)
 let step gs dir =
   if gs.status <> Alive then (gs, [], [ gs.camel ])
   else begin
@@ -208,7 +213,7 @@ let step gs dir =
     (* Entering a cell: hazards first, then pickups. *)
     let enter_cell (r, c) =
       path := (r, c) :: !path;
-      if gs.void_col >= 0 && c <= gs.void_col then
+      if is_voided gs.voids (r, c) then
         raise (Died_mid_slide (Voided, (r, c)));
       (match List.find_opt (fun e -> e.cell = (r, c)) !enemies with
        | Some e ->
@@ -244,19 +249,30 @@ let step gs dir =
           match grid.(nr).(nc) with
           | Solid | Pit -> (r, c)
           | One_way d when d <> dir -> (r, c)
-          | Fake_dune ->
-            (* The tell: only players who EARNED the break see it refuse. *)
-            emit (Bumped ((nr, nc), runway >= break_runway));
+          | Fake_dune n ->
+            (* The herring: it never breaks.  It reveals itself to anyone who
+               EARNED a break (enough runway) or who keeps hammering it. *)
+            grid.(nr).(nc) <- Fake_dune (n + 1);
+            emit (Bumped ((nr, nc), runway >= break_runway || n + 1 >= dune_hp));
             (r, c)
-          | Dune when runway < break_runway ->
-            emit (Bumped ((nr, nc), false));
-            (r, c)
-          | Dune ->
+          | Dune _ when runway >= break_runway ->
             grid.(nr).(nc) <- Empty;
             emit (Broke (nr, nc));
             on_leave (r, c);
             enter_cell (nr, nc);
             walk (nr, nc) 0 (steps + 1) (* breaking spends momentum *)
+          | Dune hp ->
+            (* Weak bump: chip it.  The slow way through a wall — dangerous
+               while something is hunting you. *)
+            if hp <= 1 then begin
+              grid.(nr).(nc) <- Empty;
+              emit (Broke (nr, nc))
+            end
+            else begin
+              grid.(nr).(nc) <- Dune (hp - 1);
+              emit (Chipped ((nr, nc), hp - 1))
+            end;
+            (r, c)
           | Cactus ->
             path := (nr, nc) :: !path;
             raise (Died_mid_slide (Pricked, (nr, nc)))
@@ -265,10 +281,10 @@ let step gs dir =
               let r2, c2 = rr + dr, rc + dc in
               if is_in_bounds r2 c2
                  && (match grid.(r2).(c2) with
-                     | Empty | Water | Crumble -> true
+                     | Empty | Water | Crumble | Quicksand -> true
                      | _ -> false)
                  && not (List.exists (fun e -> e.cell = (r2, c2)) !enemies)
-                 && not (gs.void_col >= 0 && c2 <= gs.void_col)
+                 && not (is_voided gs.voids (r2, c2))
               then roll (r2, c2)
               else (rr, rc)
             in
@@ -277,8 +293,15 @@ let step gs dir =
             else begin
               grid.(nr).(nc) <- Empty;
               (let r2, c2 = dest in
-               grid.(r2).(c2) <- Push_rock);
-              emit (Pushed ((nr, nc), dest));
+               match grid.(r2).(c2) with
+               | Quicksand ->
+                 (* the rock sinks and packs the quicksand solid-safe *)
+                 grid.(r2).(c2) <- Empty;
+                 emit (Pushed ((nr, nc), dest));
+                 emit (Rock_sunk dest)
+               | _ ->
+                 grid.(r2).(c2) <- Push_rock;
+                 emit (Pushed ((nr, nc), dest)));
               on_leave (r, c);
               enter_cell (nr, nc);
               (nr, nc) (* momentum spent shoving *)
@@ -293,7 +316,8 @@ let step gs dir =
               walk (pr, pc) (runway + 1) (steps + 1)
             | None -> walk (nr, nc) (runway + 1) (steps + 1)
           end
-          | Empty | Water | Crumble | One_way _ | False_exit | Exit ->
+          | Empty | Water | Crumble | Quicksand | One_way _ | False_exit
+          | Exit ->
             on_leave (r, c);
             enter_cell (nr, nc);
             walk (nr, nc) (runway + 1) (steps + 1)
@@ -312,84 +336,96 @@ let step gs dir =
         finish_events (), path_list () )
     | Ok final ->
       if final = gs.camel then
-        (* A bump: feedback only, the world does not tick. *)
-        ({ gs with facing = dir }, finish_events (), path_list ())
+        (* No movement — but a bump may still have chipped the grid. *)
+        ({ gs with grid; facing = dir }, finish_events (), path_list ())
       else begin
-        (* Stop-cell resolution. *)
         let fr, fc = final in
-        let won = ref false and twisted = ref false in
-        (match grid.(fr).(fc) with
-         | Exit ->
-           if !water >= gs.threshold then
-             if gs.twist then begin
-               twisted := true;
-               emit Twist_triggered
-             end
-             else begin
-               won := true;
-               emit Level_won
-             end
-           else emit (Exit_locked final)
-         | False_exit -> emit (Mirage final)
-         | _ -> ());
-        let base =
-          { gs with grid; camel = final; facing = dir; water = !water;
-                    enemies = !enemies; powerups = !powerups;
-                    moves = gs.moves + 1 }
-        in
-        if !won then ({ base with status = Won }, finish_events (), path_list ())
-        else if !twisted then
-          ({ base with status = Twisted }, finish_events (), path_list ())
+        (* Stopping on quicksand is the end of you. *)
+        if grid.(fr).(fc) = Quicksand then begin
+          emit (Died (Sunk, final));
+          ( { gs with grid; camel = final; facing = dir; water = !water;
+                      enemies = !enemies; powerups = !powerups;
+                      moves = gs.moves + 1; status = Dead Sunk },
+            finish_events (), path_list () )
+        end
         else begin
-          (* World tick: enemies step... *)
-          let is_protected = !has_power in
-          let enemies' = step_enemies grid !enemies final ~is_protected in
-          let touching, clear =
-            List.partition (fun e -> e.cell = final) enemies'
-          in
-          let died = ref None in
-          let enemies' =
-            if touching = [] then enemies'
-            else if is_protected then begin
-              List.iter (fun e -> emit (Ate_enemy e.cell)) touching;
-              clear
-            end
-            else begin
-              died := Some Stung;
-              enemies'
-            end
-          in
-          if !died = None && (not is_protected)
-             && is_in_viper_los grid enemies' final
-          then died := Some Gazed;
-          (* ...then the void advances. *)
-          let void_col =
-            if gs.void_col >= 0 then gs.void_col + void_step_per_move
-            else gs.void_col
-          in
-          let enemies' =
-            if void_col >= 0 then
-              List.filter (fun e -> snd e.cell > void_col) enemies'
-            else enemies'
-          in
-          if !died = None && void_col >= 0 && fc <= void_col then
-            died := Some Voided;
+          let won = ref false and twisted = ref false in
+          (match grid.(fr).(fc) with
+           | Exit ->
+             if !water >= gs.threshold then
+               if gs.twist then begin
+                 twisted := true;
+                 emit Twist_triggered
+               end
+               else begin
+                 won := true;
+                 emit Level_won
+               end
+             else emit (Exit_locked final)
+           | False_exit -> emit (Mirage final)
+           | _ -> ());
           let power_left =
-            let p = if !picked_power then oasis_power_moves else gs.power_left in
+            let p =
+              if !picked_power then oasis_power_moves else gs.power_left
+            in
             max 0 (p - 1)
           in
-          match !died with
-          | Some reason ->
-            emit (Died (reason, final));
-            ( { base with enemies = enemies'; void_col; power_left;
-                          status = Dead reason },
-              finish_events (), path_list () )
-          | None ->
-            ( { base with enemies = enemies'; void_col; power_left },
-              finish_events (), path_list () )
+          let status =
+            if !won then Won else if !twisted then Twisted else Alive
+          in
+          ( { gs with grid; camel = final; facing = dir; water = !water;
+                      enemies = !enemies; powerups = !powerups;
+                      moves = gs.moves + 1; power_left; status },
+            finish_events (), path_list () )
         end
       end
   end
+
+(* ---- Real-time world ticks (driven by the main loop's clock) ---- *)
+
+(* One scorpion step for every scorpion.  Returns the new state plus events;
+   a scorpion stepping onto the camel kills (or is eaten under power). *)
+let tick_scorpions gs =
+  if gs.status <> Alive then (gs, [])
+  else begin
+    let is_protected = gs.power_left > 0 in
+    let enemies' = step_enemies gs.grid gs.enemies gs.camel ~is_protected in
+    let touching, clear =
+      List.partition (fun e -> e.cell = gs.camel) enemies'
+    in
+    if touching = [] then ({ gs with enemies = enemies' }, [])
+    else if is_protected then
+      ( { gs with enemies = clear },
+        List.map (fun e -> Ate_enemy e.cell) touching )
+    else
+      ( { gs with enemies = enemies'; status = Dead Stung },
+        [ Died (Stung, gs.camel) ] )
+  end
+
+(* The application turns another page: every active front advances one line.
+   Enemies caught under it are swallowed. *)
+let tick_void gs =
+  if gs.status <> Alive || gs.voids = [] then (gs, [])
+  else begin
+    let voids =
+      List.map
+        (fun (side, p) ->
+          match side with
+          | Left | Up -> (side, p + 1)
+          | Right | Down -> (side, p - 1))
+        gs.voids
+    in
+    let enemies =
+      List.filter (fun e -> not (is_voided voids e.cell)) gs.enemies
+    in
+    if is_voided voids gs.camel then
+      ( { gs with voids; enemies; status = Dead Voided },
+        [ Died (Voided, gs.camel) ] )
+    else ({ gs with voids; enemies }, [])
+  end
+
+let is_any_scorpion_chasing gs =
+  List.exists (fun e -> e.kind = Scorpion && e.st = Chase) gs.enemies
 
 (* True if some direction actually moves the camel (used for the
    "STRANDED — press R" hint). *)
