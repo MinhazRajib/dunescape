@@ -6,7 +6,7 @@ A pixel-art desert sliding puzzle in OCaml, rendered by lovingly abusing the
 OCaml `Graphics` module. You are a camel: press a direction and you glide
 until something stops you — no take-backs mid-slide. But the desert no longer
 waits for you: scorpions hunt on their own clock, and what comes after the
-oasis... advances one ruled line at a time.
+oasis... never stops moving at all.
 
 ## Build & run
 
@@ -66,12 +66,12 @@ dune runtest                           # CI check: all boards must be solvable
 
 ## After the third level
 
-The oasis is not what it seems. What follows is a four-page **job
-application** advancing across the desert — from the left, then both sides,
-then below, then above — and the only way out is a gate on each page, until
-the last, where the only safe cell in the desert is its exact **center**.
-
-Do not sign.
+The oasis is not what it seems. What follows is **the closing void** — a
+churning wall that glides across the desert in real time, four depths deep,
+and it compounds: first it comes from the left, then both sides, then below
+joins in, and at the last depth it closes from *everywhere*. Each gate leads
+deeper; on the final board the only safe cell in the desert is its exact
+**center**.
 
 ## How it's put together
 
@@ -86,11 +86,11 @@ test/
 bin/   rendering & shell (executable `main`)
   palette.ml  day / dusk palettes        font.ml    5x7 chunky pixel font
   sprites.ml  pixel-art sprites          fx.ml      particles, shake, glitch
-  render.ml   tiles, paper, HUD, screens main.ml    turn loop + world clock
+  render.ml   tiles, void, HUD, screens  main.ml    turn loop + world clock
 ```
 
 Because `Slide.step` is a pure function over an immutable state, undo is a
 stack of old states, restart is re-parsing the level, and the solver
 exhaustively proves each board beatable in the exact engine you play.
-(Real-time hazards — scorpions and the application — are the solver's one
+(Real-time hazards — scorpions and the void — are the solver's one
 concession: they're dodged with timing, so it verifies the maze beneath them.)
