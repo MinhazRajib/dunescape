@@ -1,6 +1,6 @@
 # 🐫 DuneScape
 
-**ALL TRADES ARE FINAL.**
+**A DESERT MAZE.**
 
 A pixel-art desert sliding puzzle in OCaml, rendered by lovingly abusing the
 OCaml `Graphics` module. You are a camel: press a direction and you glide

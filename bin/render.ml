@@ -630,7 +630,7 @@ let draw_title (pal : Palette.t) ~frame =
     (Palette.color_of pal.ui) "DUNESCAPE";
   Font.draw_centered ~scale:3 ~cx:(win_w / 2) ~y_top:410
     (Palette.color_of pal.gold)
-    "ALL TRADES ARE FINAL.";
+    "A DESERT MAZE";
   if frame / 14 mod 2 = 0 then
     Font.draw_centered ~scale:3 ~cx:(win_w / 2) ~y_top:80
       (Palette.color_of pal.ui) "PRESS ENTER";
